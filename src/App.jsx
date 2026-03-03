@@ -21,7 +21,24 @@ function daysUntil(q) { if(!q.srNextReview)return 0; const t=new Date();t.setHou
 function reviewLabel(q) { if(!q.srNextReview)return{label:"未学習",color:"#7a8a9a"}; const d=daysUntil(q); if(d<0)return{label:`${Math.abs(d)}日超過`,color:"#e05a5a"}; if(d===0)return{label:"今日",color:"#4aad8b"}; if(d===1)return{label:"明日",color:"#c4a050"}; return{label:`${d}日後`,color:"#6b9fd4"}; }
 
 // ── Storage ───────────────────────────────────────────────────────────────────
-const LS = { getQ:()=>{try{const r=localStorage.getItem("cfa:q");return r?JSON.parse(r):[]}catch{return[]}}, setQ:qs=>{try{localStorage.setItem("cfa:q",JSON.stringify(qs))}catch{}}, getN:()=>{try{const r=localStorage.getItem("cfa:notes");return r?JSON.parse(r):[]}catch{return[]}}, setN:ns=>{try{localStorage.setItem("cfa:notes",JSON.stringify(ns))}catch{}}, getKey:()=>localStorage.getItem("cfa:apikey")||"", setKey:k=>localStorage.setItem("cfa:apikey",k) };
+const LS = {
+  getQ: () => {
+    try {
+      const legacy = localStorage.getItem("cfa:questions");
+      const current = localStorage.getItem("cfa:q");
+      if (legacy && !current) {
+        localStorage.setItem("cfa:q", legacy);
+        return JSON.parse(legacy);
+      }
+      return current ? JSON.parse(current) : [];
+    } catch { return []; }
+  },
+  setQ: qs => { try { localStorage.setItem("cfa:q", JSON.stringify(qs)); } catch {} },
+  getN: () => { try { const r = localStorage.getItem("cfa:notes"); return r ? JSON.parse(r) : []; } catch { return []; } },
+  setN: ns => { try { localStorage.setItem("cfa:notes", JSON.stringify(ns)); } catch {} },
+  getKey: () => localStorage.getItem("cfa:apikey") || "",
+  setKey: k => localStorage.setItem("cfa:apikey", k),
+};
 
 // ── Translation ───────────────────────────────────────────────────────────────
 function splitChunks(t,max=400){if(t.length<=max)return[t];const r=[];let s=t;while(s.length>max){let c=s.lastIndexOf(". ",max);if(c<50)c=s.lastIndexOf(" ",max);if(c<50)c=max;r.push(s.slice(0,c+1).trim());s=s.slice(c+1).trim();}if(s)r.push(s);return r;}
