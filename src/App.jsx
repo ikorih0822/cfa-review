@@ -387,6 +387,55 @@ function parseQuestion(raw) {
   };
 }
 
+
+// ── GenerateKPBtn ─────────────────────────────────────────────────────────────
+function GenerateKPBtn({question, onResult, disabled}) {
+  const [loading, setLoading] = useState(false);
+
+  async function generate() {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      alert("AI機能を使うにはAnthropicのAPIキーが必要です。\n設定（⚙️）からAPIキーを入力してください。");
+      return;
+    }
+    setLoading(true);
+    const labels = ["A","B","C","D","E"];
+    const correctChoice = question.choices[question.correctIndex];
+    const prompt = `以下のCFA試験問題を分析して、覚えるべきポイントを日本語で出力してください。
+
+【問題文】
+${question.questionEN}
+
+【正解】
+${labels[question.correctIndex]}. ${correctChoice}
+
+【解説】
+${question.explanationEN}
+
+【出力形式】
+• で始まる箇条書き3〜5行
+• 各行は1〜2文で簡潔に
+• 試験で問われる核心概念・定義・数値・比較を優先
+• 必要に応じて「覚え方」や「ひっかけ注意」も1行追加
+• 余計な前置き・説明は不要。箇条書きのみ出力`;
+
+    try {
+      const reply = await askClaude(apiKey, [{role:"user", content: prompt}]);
+      onResult(reply.trim());
+    } catch(e) {
+      alert("生成失敗: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button onClick={generate} disabled={disabled||loading} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 12px",borderRadius:4,border:"1px solid rgba(155,143,212,0.5)",background:(disabled||loading)?"rgba(155,143,212,0.04)":"rgba(155,143,212,0.15)",color:(disabled||loading)?"#5a4a7a":"#b0a0e0",cursor:(disabled||loading)?"not-allowed":"pointer",fontSize:11,fontWeight:"bold",whiteSpace:"nowrap"}}>
+      {loading?<><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⟳</span> 生成中...</>:<>✨ AIで自動生成</>}
+    </button>
+  );
+}
+
 // ── QuickImport Modal ─────────────────────────────────────────────────────────
 function QuickImportModal({open, onClose, onImport}) {
   const [raw, setRaw] = useState("");
@@ -518,7 +567,15 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
     <textarea value={form.questionJA} onChange={e=>set("questionJA",e.target.value)} style={{...S.textarea,borderColor:form.questionJA?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.25)"}} placeholder="問題の日本語訳を入力..."/>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}><label style={{...S.label,marginBottom:0}}>解説（日本語）</label><TranslateBtn loading={!!translating.explanationJA} onClick={()=>translateField(form.explanationEN,"explanationJA")}/></div>
     <textarea value={form.explanationJA} onChange={e=>set("explanationJA",e.target.value)} style={{...S.textarea,borderColor:form.explanationJA?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.25)"}} placeholder="解説の日本語訳を入力..."/>
-    <label style={S.label}>📌 覚えるべきポイント</label><textarea value={form.keyPoints} onChange={e=>set("keyPoints",e.target.value)} style={{...S.textarea,borderColor:"rgba(196,160,80,0.4)"}} placeholder="覚えるべきポイント..."/>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+      <label style={{...S.label,marginBottom:0}}>📌 覚えるべきポイント</label>
+      <GenerateKPBtn
+        disabled={!form.questionEN.trim()||!form.explanationEN.trim()}
+        question={form}
+        onResult={text=>set("keyPoints",text)}
+      />
+    </div>
+    <textarea value={form.keyPoints} onChange={e=>set("keyPoints",e.target.value)} style={{...S.textarea,borderColor:"rgba(196,160,80,0.4)"}} placeholder="覚えるべきポイント（右上のボタンでAI自動生成も可）..."/>
     <div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div><button onClick={()=>setShowRelated(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showRelated?"閉じる":"問題を紐づける"}</button></div>{linkedQs.length>0&&<div style={{fontSize:11,color:"#9b8fd4",marginBottom:8}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),marginRight:4,marginBottom:4,display:"inline-block"}}>{q.questionEN.slice(0,25)}…</span>)}</div>}{showRelated&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}</div>
     <button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>{editQ?"変更を保存する":"問題を登録する"}</button>
   </div>);
