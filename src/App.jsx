@@ -290,10 +290,206 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
   return(<div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditNote(null);setPage("notes");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editNote?"ノートを編集":"新規ノート"}</div></div><label style={S.label}>タイトル</label><input value={form.title} onChange={e=>set("title",e.target.value)} style={S.input} placeholder="ノートのタイトル..."/><label style={S.label}>内容</label><textarea value={form.content} onChange={e=>set("content",e.target.value)} style={{...S.textarea,minHeight:200}} placeholder="まとめ・メモ・気づきなど..."/><div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div><button onClick={()=>setShowPicker(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showPicker?"閉じる":"問題を紐づける"}</button></div>{linkedQs.length>0&&<div style={{marginBottom:10}}>{linkedQs.map(q=>(<div key={q.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{flex:1}}><div style={{fontSize:12,color:"#a0b0c0"}}>{q.questionEN.slice(0,70)}…</div></div><button onClick={()=>set("relatedIds",(form.relatedIds||[]).filter(i=>i!==q.id))} style={{...S.btn("danger"),padding:"4px 7px",fontSize:11}}>×</button></div>))}</div>}{showPicker&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}</div><button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>{editNote?"変更を保存する":"ノートを保存する"}</button></div>);
 }
 
+
+// ── Question Parser ───────────────────────────────────────────────────────────
+function parseQuestion(raw) {
+  const lines = raw.split(/\r?\n/);
+  const labels = ["A","B","C","D","E"];
+
+  // Find the line index where choices start
+  // A choice line: starts with "A." / "B." etc, or "Incorrect answer:" / "Correct answer:" / "Correct Answer:"
+  const choiceStartRe = /^([A-E])\./i;
+  const incorrectRe = /^incorrect answer[:\s]*/i;
+  const correctRe = /^correct answer[:\s]*/i;
+  const feedbackRe = /^(general )?feedback\s*$/i;
+
+  let choiceStartIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (choiceStartRe.test(l) || incorrectRe.test(l) || correctRe.test(l)) {
+      choiceStartIdx = i; break;
+    }
+  }
+
+  // Question text = everything before choices
+  const questionLines = choiceStartIdx > 0 ? lines.slice(0, choiceStartIdx) : [];
+  const questionEN = questionLines.map(l => l.trim()).filter(l => l).join("\n").trim();
+
+  // Parse choices and find correct answer
+  const choiceMap = {}; // {A: text, B: text, ...}
+  let correctLetter = null;
+  let explanationLines = [];
+  let inFeedback = false;
+  let pendingCorrect = false; // next choice line is the correct answer
+  let pendingIncorrect = false;
+
+  const afterChoices = choiceStartIdx >= 0 ? lines.slice(choiceStartIdx) : lines;
+
+  for (let i = 0; i < afterChoices.length; i++) {
+    const raw_l = afterChoices[i];
+    const l = raw_l.trim();
+
+    if (!l) continue;
+
+    if (feedbackRe.test(l)) { inFeedback = true; continue; }
+    if (inFeedback) { explanationLines.push(l); continue; }
+
+    // "Correct Answer:" or "Correct answer:" marker
+    if (correctRe.test(l)) {
+      // The correct answer text may be on same line or next line
+      const rest = l.replace(correctRe, "").trim();
+      const m = rest.match(/^([A-E])\./i);
+      if (m) {
+        correctLetter = m[1].toUpperCase();
+        const choiceText = rest.replace(/^[A-E]\./i, "").trim();
+        if (choiceText) choiceMap[correctLetter] = choiceText;
+      } else {
+        pendingCorrect = true;
+      }
+      continue;
+    }
+
+    if (incorrectRe.test(l)) {
+      pendingIncorrect = true;
+      continue;
+    }
+
+    // "Not Selected" - skip
+    if (/^not selected$/i.test(l)) continue;
+
+    // Choice line: A. text
+    const cm = l.match(/^([A-E])\.(.*)/i);
+    if (cm) {
+      const letter = cm[1].toUpperCase();
+      const text = cm[2].trim();
+      choiceMap[letter] = text;
+      if (pendingCorrect) { correctLetter = letter; pendingCorrect = false; }
+      if (pendingIncorrect) { pendingIncorrect = false; }
+      continue;
+    }
+
+    // If pending correct/incorrect but line doesn't match A. format
+    if (pendingCorrect) { pendingCorrect = false; }
+    if (pendingIncorrect) { pendingIncorrect = false; }
+  }
+
+  // Build ordered choices array
+  const orderedLetters = labels.filter(l => choiceMap[l]);
+  const choices = orderedLetters.map(l => choiceMap[l]);
+  const correctIndex = correctLetter ? orderedLetters.indexOf(correctLetter) : 0;
+  const explanationEN = explanationLines.join(" ").replace(/\s+/g, " ").trim();
+
+  return {
+    questionEN,
+    choices: choices.length >= 2 ? choices : ["", "", ""],
+    correctIndex: correctIndex >= 0 ? correctIndex : 0,
+    explanationEN,
+  };
+}
+
+// ── QuickImport Modal ─────────────────────────────────────────────────────────
+function QuickImportModal({open, onClose, onImport}) {
+  const [raw, setRaw] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [error, setError] = useState(null);
+
+  function handleParse() {
+    if (!raw.trim()) return;
+    setError(null);
+    try {
+      const result = parseQuestion(raw);
+      if (!result.questionEN) {
+        setError("問題文を検出できませんでした。テキストを確認してください。");
+        return;
+      }
+      if (result.choices.filter(c => c).length < 2) {
+        setError("選択肢を2つ以上検出できませんでした。");
+        return;
+      }
+      setParsed(result);
+    } catch(e) {
+      setError("解析エラー: " + e.message);
+    }
+  }
+
+  function handleImport() {
+    if (!parsed) return;
+    onImport(parsed);
+    setRaw(""); setParsed(null); setError(null); onClose();
+  }
+
+  function handleClose() {
+    setRaw(""); setParsed(null); setError(null); onClose();
+  }
+
+  if (!open) return null;
+  const labels = ["A","B","C","D","E"];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"16px",overflowY:"auto"}}>
+      <div style={{...S.card,maxWidth:600,width:"100%",marginBottom:0,marginTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:13,color:"#c4a050",letterSpacing:"0.1em"}}>📋 テキストから問題を読み込む</div>
+          <button onClick={handleClose} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:12}}>閉じる</button>
+        </div>
+
+        {!parsed ? (<>
+          <div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.7,marginBottom:10}}>
+            問題文・選択肢・解説をまとめてコピペしてください。自動で解析します。<br/>
+            ⚠️ 表を含む問題は問題文欄に取り込まれます。登録後に手動で編集してください。
+          </div>
+          <textarea
+            value={raw}
+            onChange={e=>setRaw(e.target.value)}
+            style={{...S.textarea, minHeight:220, fontSize:13}}
+            placeholder={"問題文と選択肢・解説をここに貼り付け...\n\n例:\nWhich of the following...\nA. Option one\nB. Option two\nCorrect Answer:\nB. Option two\nFeedback\nB is correct because..."}
+          />
+          {error && <div style={{background:"rgba(224,90,90,0.1)",border:"1px solid rgba(224,90,90,0.3)",borderRadius:4,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#e08a8a"}}>⚠️ {error}</div>}
+          <button onClick={handleParse} disabled={!raw.trim()} style={{...S.btn("primary"),width:"100%",padding:12,opacity:!raw.trim()?0.4:1}}>
+            解析する →
+          </button>
+        </>) : (<>
+          <div style={{fontSize:11,color:"#4aad8b",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>✓ 解析完了。内容を確認してください。</div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>問題文</div>
+            <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",fontSize:13,color:"#c8bfaf",lineHeight:1.6,border:"1px solid rgba(196,160,80,0.2)",whiteSpace:"pre-wrap"}}>{parsed.questionEN}</div>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>選択肢</div>
+            {parsed.choices.filter(c=>c).map((c,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"8px 10px",borderRadius:4,border:`1px solid ${i===parsed.correctIndex?"rgba(74,173,139,0.5)":"rgba(196,160,80,0.15)"}`,background:i===parsed.correctIndex?"rgba(74,173,139,0.08)":"rgba(255,255,255,0.02)"}}>
+                <span style={{fontSize:12,fontWeight:"bold",color:i===parsed.correctIndex?"#4aad8b":"#5a6a7a",minWidth:20}}>{labels[i]}.</span>
+                <span style={{fontSize:13,color:i===parsed.correctIndex?"#4aad8b":"#c8bfaf",flex:1,lineHeight:1.5}}>{c}</span>
+                {i===parsed.correctIndex&&<span style={{fontSize:10,color:"#4aad8b"}}>✓ 正解</span>}
+              </div>
+            ))}
+          </div>
+
+          {parsed.explanationEN && (
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>解説</div>
+              <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",fontSize:13,color:"#c8bfaf",lineHeight:1.6,border:"1px solid rgba(196,160,80,0.2)"}}>{parsed.explanationEN}</div>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setParsed(null)} style={{...S.btn("ghost"),flex:1}}>← やり直す</button>
+            <button onClick={handleImport} style={{...S.btn("primary"),flex:2}}>この内容で登録画面へ →</button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
 // ── AddQuestion ───────────────────────────────────────────────────────────────
 function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
   const [form,setForm]=useState(()=>editQ?{...editQ,relatedIds:editQ.relatedIds||[]}:{...BLANK_Q,id:uid()});
   const [translating,setTranslating]=useState({});const [transError,setTransError]=useState(null);const [showRelated,setShowRelated]=useState(false);
+  const [showImport,setShowImport]=useState(false);
+  function applyParsed(parsed){setForm(f=>({...f,questionEN:parsed.questionEN,choices:parsed.choices.length>=2?parsed.choices:["","",""],choicesJA:Array(parsed.choices.length).fill(""),correctIndex:parsed.correctIndex,explanationEN:parsed.explanationEN||""}));}
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const setChoice=(idx,val)=>setForm(f=>{const c=[...f.choices];c[idx]=val;return{...f,choices:c};});
   const setChoiceJA=(idx,val)=>setForm(f=>{const c=[...(f.choicesJA||[])];c[idx]=val;return{...f,choicesJA:c};});
@@ -308,7 +504,8 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
   const linkedQs=(form.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);
   return(<div>
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div></div>
+    <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={parsed=>{applyParsed(parsed);}}/>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div>{!editQ&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
     <label style={S.label}>問題文（英語） *</label><textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder="Enter the question text in English..."/>
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
