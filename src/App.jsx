@@ -47,7 +47,7 @@ async function fbSaveNotes(uid, ns) {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CFA_TOPICS = ["Ethics & Professional Standards","Quantitative Methods","Economics","Financial Statement Analysis","Corporate Issuers","Equity Investments","Fixed Income","Derivatives","Alternative Investments","Portfolio Management","Wealth Planning"];
 const DIFFICULTY = ["Easy","Medium","Hard"];
-const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null };
+const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[] };
 const BLANK_NOTE = { id:null, title:"", content:"", relatedIds:[], createdAt:null, updatedAt:null };
 
 // ── SM-2 ──────────────────────────────────────────────────────────────────────
@@ -166,12 +166,127 @@ function RelatedQuestionPicker({questions,selected,onChange,currentId}){
 }
 
 // ── AiChat ────────────────────────────────────────────────────────────────────
-function AiChat({question,onOpenSettings}){
-  const [msgs,setMsgs]=useState([]);const [input,setInput]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState(null);const [open,setOpen]=useState(false);const bottomRef=useRef(null);const apiKey=getApiKey();
+function SavedChats({chats, onDelete}) {
+  const [openIdx, setOpenIdx] = useState(null);
+  if (!chats || chats.length === 0) return null;
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:10,color:"#6b9fd4",letterSpacing:"0.15em",marginBottom:6,display:"flex",alignItems:"center",gap:5}}><Ic.chat/> 保存済みAI質問履歴</div>
+      {chats.map((chat, ci) => (
+        <div key={ci} style={{border:"1px solid rgba(100,140,200,0.2)",borderRadius:4,marginBottom:6,overflow:"hidden"}}>
+          <div onClick={()=>setOpenIdx(openIdx===ci?null:ci)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",cursor:"pointer",background:"rgba(100,140,200,0.06)"}}>
+            <div style={{fontSize:11,color:"#6b9fd4"}}>{new Date(chat.savedAt).toLocaleDateString("ja-JP")} · {chat.msgs.filter(m=>m.role==="user").length}問</div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:10,color:"#5a6a7a"}}>{openIdx===ci?"▲":"▼"}</span>
+              <button onClick={e=>{e.stopPropagation();if(confirm("この履歴を削除しますか？"))onDelete(ci);}} style={{...S.btn("danger"),padding:"2px 6px",fontSize:10}}>×</button>
+            </div>
+          </div>
+          {openIdx===ci && (
+            <div style={{padding:"10px 12px",maxHeight:240,overflowY:"auto"}}>
+              {chat.msgs.map((m,mi)=>(
+                <div key={mi} style={{marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <span style={{fontSize:11,color:m.role==="user"?"#c4a050":"#6b9fd4",minWidth:28,flexShrink:0}}>{m.role==="user"?"You":"AI"}</span>
+                  <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.6,flex:1,whiteSpace:"pre-wrap"}}>{m.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AiChat({question, onOpenSettings, onSaveChat}) {
+  const [msgs,setMsgs]=useState([]);
+  const [input,setInput]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [open,setOpen]=useState(false);
+  const [saved,setSaved]=useState(false);
+  const bottomRef=useRef(null);
+  const apiKey=getApiKey();
+
   useEffect(()=>{if(bottomRef.current)bottomRef.current.scrollIntoView({behavior:"smooth"});},[msgs]);
-  async function send(){if(!input.trim()||loading)return;if(!apiKey){onOpenSettings();return;}const userMsg=input.trim();setInput("");setError(null);const context=`You are a CFA exam tutor. The student is reviewing this question:\n\nQuestion: ${question.questionEN}\n\nCorrect Answer: ${question.choices[question.correctIndex]}\n\nExplanation: ${question.explanationEN}\n\nAnswer concisely in the same language they use (Japanese or English).`;const history=[...msgs,{role:"user",content:userMsg}];setMsgs(history);setLoading(true);try{const allMsgs=history.length===1?[{role:"user",content:`${context}\n\nStudent's question: ${userMsg}`}]:[{role:"user",content:`${context}\n\nStudent's question: ${history[0].content}`},...history.slice(1)];const reply=await askClaude(apiKey,allMsgs);setMsgs(prev=>[...prev,{role:"assistant",content:reply}]);}catch(e){setError(e.message);}finally{setLoading(false);}}
-  if(!open)return(<button onClick={()=>setOpen(true)} style={{...S.btn("blue"),display:"flex",alignItems:"center",gap:6,marginBottom:10,fontSize:12,padding:"7px 14px"}}><Ic.chat/> AIに追加質問する</button>);
-  return(<div style={{...S.card,borderColor:"rgba(100,140,200,0.3)",marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#6b9fd4",letterSpacing:"0.15em"}}>AI TUTOR</div><button onClick={()=>setOpen(false)} style={{...S.btn("ghost"),padding:"2px 8px",fontSize:11}}>閉じる</button></div>{!apiKey&&<div style={{fontSize:12,color:"#8a9ab0",marginBottom:8}}>APIキーが必要です。<button onClick={onOpenSettings} style={{color:"#6b9fd4",background:"none",border:"none",cursor:"pointer",textDecoration:"underline",fontSize:12}}>設定で入力 →</button></div>}<div style={{maxHeight:200,overflowY:"auto",marginBottom:10}}>{msgs.length===0&&<div style={{fontSize:12,color:"#5a6a7a",padding:"8px 0"}}>この問題について何でも質問できます（日本語OK）</div>}{msgs.map((m,i)=>(<div key={i} style={{marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}><span style={{fontSize:11,color:m.role==="user"?"#c4a050":"#6b9fd4",minWidth:28,flexShrink:0}}>{m.role==="user"?"You":"AI"}</span><div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.6,flex:1,whiteSpace:"pre-wrap"}}>{m.content}</div></div>))}{loading&&<div style={{fontSize:12,color:"#5a6a7a"}}>⟳ 考え中...</div>}{error&&<div style={{fontSize:12,color:"#e05a5a"}}>⚠️ {error}</div>}<div ref={bottomRef}/></div><div style={{display:"flex",gap:6}}><input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} style={{...S.input,marginBottom:0,flex:1,fontSize:13}} placeholder="質問を入力...（Enter送信）"/><button onClick={send} disabled={loading||!input.trim()} style={{...S.btn("blue"),padding:"8px 12px",opacity:loading||!input.trim()?0.4:1}}><Ic.send/></button></div></div>);
+
+  async function send() {
+    if(!input.trim()||loading)return;
+    if(!apiKey){onOpenSettings();return;}
+    const userMsg=input.trim();setInput("");setError(null);setSaved(false);
+    const context=`You are a CFA exam tutor. The student is reviewing this question:
+
+Question: ${question.questionEN}
+
+Correct Answer: ${question.choices[question.correctIndex]}
+
+Explanation: ${question.explanationEN}
+
+Answer concisely in the same language they use (Japanese or English).`;
+    const history=[...msgs,{role:"user",content:userMsg}];
+    setMsgs(history);setLoading(true);
+    try {
+      const allMsgs=history.length===1
+        ?[{role:"user",content:`${context}
+
+Student's question: ${userMsg}`}]
+        :[{role:"user",content:`${context}
+
+Student's question: ${history[0].content}`},...history.slice(1)];
+      const reply=await askClaude(apiKey,allMsgs);
+      setMsgs(prev=>[...prev,{role:"assistant",content:reply}]);
+    } catch(e){setError(e.message);}
+    finally{setLoading(false);}
+  }
+
+  function handleSave() {
+    if(msgs.length===0)return;
+    onSaveChat({msgs, savedAt: new Date().toISOString()});
+    setSaved(true);
+  }
+
+  function handleClose() {
+    setOpen(false);
+    setMsgs([]);setInput("");setError(null);setSaved(false);
+  }
+
+  if(!open) return(
+    <button onClick={()=>setOpen(true)} style={{...S.btn("blue"),display:"flex",alignItems:"center",gap:6,marginBottom:10,fontSize:12,padding:"7px 14px"}}>
+      <Ic.chat/> AIに追加質問する
+    </button>
+  );
+
+  return(
+    <div style={{...S.card,borderColor:"rgba(100,140,200,0.3)",marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:10,color:"#6b9fd4",letterSpacing:"0.15em"}}>AI TUTOR</div>
+        <div style={{display:"flex",gap:6}}>
+          {msgs.length>0&&(
+            <button onClick={handleSave} disabled={saved} style={{...S.btn("ghost"),padding:"2px 10px",fontSize:11,borderColor:"rgba(100,140,200,0.4)",color:saved?"#4aad8b":"#6b9fd4",opacity:saved?0.7:1}}>
+              {saved?"✓ 保存済":"💾 保存"}
+            </button>
+          )}
+          <button onClick={handleClose} style={{...S.btn("ghost"),padding:"2px 8px",fontSize:11}}>閉じる</button>
+        </div>
+      </div>
+      {!apiKey&&<div style={{fontSize:12,color:"#8a9ab0",marginBottom:8}}>APIキーが必要です。<button onClick={onOpenSettings} style={{color:"#6b9fd4",background:"none",border:"none",cursor:"pointer",textDecoration:"underline",fontSize:12}}>設定で入力 →</button></div>}
+      <div style={{maxHeight:220,overflowY:"auto",marginBottom:10}}>
+        {msgs.length===0&&<div style={{fontSize:12,color:"#5a6a7a",padding:"8px 0"}}>この問題について何でも質問できます（日本語OK）<br/><span style={{fontSize:11,color:"#4a5a6a"}}>💾 会話後に「保存」すると次回の解説に残ります</span></div>}
+        {msgs.map((m,i)=>(
+          <div key={i} style={{marginBottom:8,display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{fontSize:11,color:m.role==="user"?"#c4a050":"#6b9fd4",minWidth:28,flexShrink:0}}>{m.role==="user"?"You":"AI"}</span>
+            <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.6,flex:1,whiteSpace:"pre-wrap"}}>{m.content}</div>
+          </div>
+        ))}
+        {loading&&<div style={{fontSize:12,color:"#5a6a7a"}}>⟳ 考え中...</div>}
+        {error&&<div style={{fontSize:12,color:"#e05a5a"}}>⚠️ {error}</div>}
+        <div ref={bottomRef}/>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} style={{...S.input,marginBottom:0,flex:1,fontSize:13}} placeholder="質問を入力...（Enter送信）"/>
+        <button onClick={send} disabled={loading||!input.trim()} style={{...S.btn("blue"),padding:"8px 12px",opacity:loading||!input.trim()?0.4:1}}><Ic.send/></button>
+      </div>
+    </div>
+  );
 }
 
 // ── SettingsModal ─────────────────────────────────────────────────────────────
@@ -268,7 +383,23 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
       <div style={{...S.card,marginBottom:8}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>EXPLANATION</div><div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>{q.explanationJA&&<div style={{marginTop:10}}><button onClick={()=>setRevealed(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{revealed?<Ic.eyeOff/>:<Ic.eye/>} 日本語解説</button>{revealed&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.explanationJA}</div>}</div>}</div>
       {q.keyPoints&&<div style={{marginBottom:10}}><button onClick={()=>setShowKP(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}><Ic.flag/> 覚えるべきポイント</button>{showKP&&<div style={{marginTop:8,padding:"12px",background:"rgba(196,160,80,0.06)",borderRadius:4,border:"1px solid rgba(196,160,80,0.25)",fontSize:13,color:"#d4c08a",lineHeight:1.7}}>📌 {q.keyPoints}</div>}</div>}
       {relatedQs.length>0&&<div style={{...S.card,borderColor:"rgba(155,143,212,0.3)",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題</div>{relatedQs.map(rq=>(<div key={rq.id} style={{marginBottom:6,padding:"8px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{display:"flex",gap:6,marginBottom:4}}><span style={S.tag("#9b8fd4")}>{rq.topic.split(" ").slice(0,2).join(" ")}</span></div><div style={{fontSize:12,color:"#a0b0c0",lineHeight:1.5}}>{rq.questionEN.slice(0,100)}…</div></div>))}</div>}
-      <AiChat question={q} onOpenSettings={onOpenSettings}/>
+      <SavedChats
+        chats={q.savedChats||[]}
+        onDelete={idx=>{
+          const updated={...q,savedChats:(q.savedChats||[]).filter((_,i)=>i!==idx)};
+          updateQ(updated);
+          setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));
+        }}
+      />
+      <AiChat
+        question={q}
+        onOpenSettings={onOpenSettings}
+        onSaveChat={chat=>{
+          const updated={...q,savedChats:[...(q.savedChats||[]),chat]};
+          updateQ(updated);
+          setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));
+        }}
+      />
       <button style={{...S.btn("primary"),width:"100%",padding:12}} onClick={next}>{qIdx+1>=queue.length?"結果を見る":"次の問題 →"}</button>
     </div>}
   </div>);
