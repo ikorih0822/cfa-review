@@ -909,9 +909,7 @@ Rules:
       try {
         const reply = await askClaude(apiKey, [{role:"user", content: AI_PROMPT(rawText)}]);
         // Strip markdown fences if present
-        const cleaned = reply.replace(/^```[a-z]*
-?/i,"").replace(/
-?```$/,"").trim();
+        const cleaned = reply.replace(/^```[a-z]*\n?/i,"").replace(/\n?```$/,"").trim();
         const data = JSON.parse(cleaned);
         if (!data.questionEN) throw new Error("questionENが取得できませんでした");
         if (!data.choices || data.choices.length < 2) throw new Error("選択肢が取得できませんでした");
