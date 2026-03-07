@@ -47,7 +47,7 @@ async function fbSaveNotes(uid, ns) {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CFA_TOPICS = ["Ethics & Professional Standards","Quantitative Methods","Economics","Financial Statement Analysis","Corporate Issuers","Equity Investments","Fixed Income","Derivatives","Alternative Investments","Portfolio Management","Wealth Planning"];
 const DIFFICULTY = ["Easy","Medium","Hard"];
-const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[] };
+const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[], tableData:null };
 const BLANK_NOTE = { id:null, title:"", content:"", relatedIds:[], createdAt:null, updatedAt:null };
 
 // ── SM-2 ──────────────────────────────────────────────────────────────────────
@@ -314,12 +314,18 @@ function Dashboard({questions,notes,setPage,setPracticeMode}){
 
 // ── QuestionList ──────────────────────────────────────────────────────────────
 function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
-  const [filterTopic,setFilterTopic]=useState("All");const [filterDiff,setFilterDiff]=useState("All");const [filterSR,setFilterSR]=useState("All");const [expandedId,setExpandedId]=useState(null);
+  const [filterTopic,setFilterTopic]=useState("All");const [filterDiff,setFilterDiff]=useState("All");const [filterSR,setFilterSR]=useState("All");const [expandedId,setExpandedId]=useState(null);const [sortBy,setSortBy]=useState("sr");
   const dueCount=questions.filter(isDueToday).length;
-  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{if(isDueToday(a)&&!isDueToday(b))return -1;if(!isDueToday(a)&&isDueToday(b))return 1;if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview);return 0;});
+  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return (b.id||"").localeCompare(a.id||""); if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   return(<div>
-    <div style={{display:"flex",gap:6,marginBottom:10}}>{[["All","全て"],["Due",`期限 ${dueCount}`],["Upcoming","予定あり"]].map(([val,label])=>(<button key={val} onClick={()=>setFilterSR(val)} style={{...S.btn(filterSR===val?"primary":"ghost"),padding:"5px 12px",fontSize:11}}>{label}</button>))}</div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+    <div style={{display:"flex",gap:6}}>{[["All","全て"],["Due",`期限 ${dueCount}`],["Upcoming","予定あり"]].map(([val,label])=>(<button key={val} onClick={()=>setFilterSR(val)} style={{...S.btn(filterSR===val?"primary":"ghost"),padding:"5px 12px",fontSize:11}}>{label}</button>))}</div>
+    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+      <span style={{fontSize:10,color:"#5a6a7a"}}>並替:</span>
+      {[["sr","復習順"],["date","登録順"]].map(([val,label])=>(<button key={val} onClick={()=>setSortBy(val)} style={{...S.btn(sortBy===val?"primary":"ghost"),padding:"4px 9px",fontSize:10}}>{label}</button>))}
+    </div>
+  </div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>{["All","Easy","Medium","Hard"].map(d=>(<button key={d} onClick={()=>setFilterDiff(d)} style={{...S.btn(filterDiff===d?"primary":"ghost"),padding:"4px 10px",fontSize:11}}>{d==="All"?"全難易度":d}</button>))}</div>
     <select value={filterTopic} onChange={e=>setFilterTopic(e.target.value)} style={{...S.input,marginBottom:8,fontSize:12}}>{topics.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t==="All"?"全分野":t}</option>)}</select>
     <div style={{fontSize:11,color:"#5a6a7a",marginBottom:10}}>{filtered.length} 問</div>
@@ -375,7 +381,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   return(<div>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button><div style={{flex:1,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}><div style={{width:`${(qIdx/queue.length)*100}%`,height:"100%",background:"#c4a050",borderRadius:2,transition:"width 0.3s"}}/></div><div style={{fontSize:11,color:"#7a8a9a",minWidth:48,textAlign:"right"}}>{qIdx+1} / {queue.length}</div></div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}><span style={S.tag()}>{q.topic}</span><span style={S.tag(diffColor(q.difficulty))}>{q.difficulty}</span><SRBadge q={q}/></div>
-    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8"}}>{q.questionEN}</div>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
+    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8"}}>{q.questionEN}</div><TableDisplay tableData={q.tableData||null}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
     {q.choices.some((_,i)=>(q.choicesJA||[])[i]?.trim())&&<div style={{marginBottom:6}}><button onClick={()=>setShowChoicesJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showChoicesJA?<Ic.eyeOff/>:<Ic.eye/>} 選択肢の日本語訳</button></div>}
     <div style={{marginBottom:10}}>{q.choices.filter(c=>c.trim()).map((choice,idx)=>{const jaText=(q.choicesJA||[])[idx];return(<button key={idx} style={S.choiceBtn(choiceState(idx))} onClick={()=>handleChoice(idx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[idx]}.</span><span style={{lineHeight:1.5}}>{choice}</span></div>{showChoicesJA&&jaText&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{jaText}</div>}</div>{choiceState(idx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(idx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(idx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>);})}</div>
     {answered&&<div>
@@ -405,11 +411,72 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   </div>);
 }
 
+// ── NoteViewer ────────────────────────────────────────────────────────────────
+function NoteViewer({note, questions, setPage, setEditNote}) {
+  if (!note) return null;
+  const linkedQs = (note.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>setPage("notes")} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
+        <div style={{flex:1,fontSize:14,color:"#c4a050",letterSpacing:"0.05em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{note.title||"（タイトルなし）"}</div>
+        <button onClick={()=>{setEditNote(note);setPage("note-edit");}} style={{...S.btn("ghost"),padding:"6px 10px",display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+          <Ic.edit/> 編集
+        </button>
+      </div>
+
+      <div style={{...S.card,borderColor:"rgba(196,160,80,0.3)",marginBottom:12}}>
+        <div style={{fontSize:22,fontWeight:"bold",color:"#f0e8d8",lineHeight:1.4,marginBottom:8}}>{note.title||"（タイトルなし）"}</div>
+        <div style={{fontSize:11,color:"#4a5a6a",marginBottom:16,display:"flex",gap:12}}>
+          {note.createdAt && <span>作成: {new Date(note.createdAt).toLocaleDateString("ja-JP")}</span>}
+          {note.updatedAt && note.updatedAt!==note.createdAt && <span>更新: {new Date(note.updatedAt).toLocaleDateString("ja-JP")}</span>}
+        </div>
+        <div style={{fontSize:14,color:"#d8d0c0",lineHeight:1.9,whiteSpace:"pre-wrap",borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14}}>
+          {note.content || <span style={{color:"#4a5a6a"}}>内容がありません</span>}
+        </div>
+      </div>
+
+      {linkedQs.length > 0 && (
+        <div>
+          <div style={S.sectionTitle}>紐づけた問題 ({linkedQs.length})</div>
+          {linkedQs.map(q => (
+            <div key={q.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
+                <span style={S.tag()}>{q.topic.split(" ").slice(0,2).join(" ")}</span>
+                <span style={S.tag(q.difficulty==="Hard"?"#e05a5a":q.difficulty==="Medium"?"#d4a34a":"#4aad8b")}>{q.difficulty}</span>
+              </div>
+              <div style={{fontSize:13,color:"#b0c0cc",lineHeight:1.5}}>{q.questionEN}</div>
+              {q.explanationEN && (
+                <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(196,160,80,0.1)",fontSize:12,color:"#7a8a9a",lineHeight:1.6}}>{q.explanationEN.slice(0,200)}{q.explanationEN.length>200?"…":""}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── NoteList / NoteEditor ─────────────────────────────────────────────────────
-function NoteList({notes,questions,setPage,setEditNote,deleteNote}){
+function NoteList({notes,questions,setPage,setEditNote,setViewNote,deleteNote}){
   const [search,setSearch]=useState("");
   const filtered=notes.filter(n=>search===""||n.title.includes(search)||n.content.includes(search));
-  return(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontSize:11,color:"#5a6a7a"}}>{notes.length} ノート</div><button onClick={()=>{setEditNote(null);setPage("note-edit");}} style={{...S.btn("primary"),padding:"7px 14px",fontSize:12,display:"flex",alignItems:"center",gap:5}}><Ic.plus/> 新規ノート</button></div><input value={search} onChange={e=>setSearch(e.target.value)} style={{...S.input,marginBottom:12,fontSize:12}} placeholder="ノートを検索..."/>{filtered.length===0&&<div style={{...S.card,textAlign:"center",padding:30,color:"#5a6a7a"}}>{notes.length===0?"「新規ノート」から作成できます":"該当なし"}</div>}{filtered.map(note=>{const linkedQs=(note.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);return(<div key={note.id} style={S.card}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}><div style={{flex:1}}><div style={{fontSize:15,color:"#f0e8d8",fontWeight:"bold",marginBottom:4}}>{note.title||"（タイトルなし）"}</div><div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.5,marginBottom:6}}>{note.content.slice(0,120)}{note.content.length>120?"…":""}</div>{linkedQs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),display:"inline-flex",alignItems:"center",gap:3}}><Ic.link/>{q.topic.split(" ")[0]}</span>)}</div>}</div><div style={{display:"flex",gap:5,flexShrink:0}}><button onClick={()=>{setEditNote(note);setPage("note-edit");}} style={{...S.btn("ghost"),padding:"6px 8px"}}><Ic.edit/></button><button onClick={()=>{if(confirm("削除しますか？"))deleteNote(note.id);}} style={{...S.btn("danger"),padding:"6px 8px"}}><Ic.trash/></button></div></div></div>);})}</div>);
+  return(<div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontSize:11,color:"#5a6a7a"}}>{notes.length} ノート</div><button onClick={()=>{setEditNote(null);setPage("note-edit");}} style={{...S.btn("primary"),padding:"7px 14px",fontSize:12,display:"flex",alignItems:"center",gap:5}}><Ic.plus/> 新規ノート</button></div><input value={search} onChange={e=>setSearch(e.target.value)} style={{...S.input,marginBottom:12,fontSize:12}} placeholder="ノートを検索..."/>{filtered.length===0&&<div style={{...S.card,textAlign:"center",padding:30,color:"#5a6a7a"}}>{notes.length===0?"「新規ノート」から作成できます":"該当なし"}</div>}{filtered.map(note=>{const linkedQs=(note.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);return(<div key={note.id} style={{...S.card,cursor:"pointer"}} onClick={()=>{setViewNote(note);setPage("note-view");}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,color:"#f0e8d8",fontWeight:"bold",marginBottom:4}}>{note.title||"（タイトルなし）"}</div>
+            <div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.5,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{note.content.slice(0,120)}{note.content.length>120?"…":""}</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              {linkedQs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),display:"inline-flex",alignItems:"center",gap:3}}><Ic.link/>{q.topic.split(" ")[0]}</span>)}</div>}
+              {note.updatedAt&&<span style={{fontSize:10,color:"#3a4a5a"}}>{new Date(note.updatedAt).toLocaleDateString("ja-JP")}</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:5,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+            <button onClick={()=>{setEditNote(note);setPage("note-edit");}} style={{...S.btn("ghost"),padding:"6px 8px"}}><Ic.edit/></button>
+            <button onClick={()=>{if(confirm("削除しますか？"))deleteNote(note.id);}} style={{...S.btn("danger"),padding:"6px 8px"}}><Ic.trash/></button>
+          </div>
+        </div>
+      </div>);})}</div>);
 }
 
 function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage}){
@@ -518,6 +585,128 @@ function parseQuestion(raw) {
   };
 }
 
+
+
+// ── TableDisplay ──────────────────────────────────────────────────────────────
+function TableDisplay({tableData}) {
+  if (!tableData) return null;
+  const { headers, rows } = tableData;
+  return (
+    <div style={{overflowX:"auto",marginTop:10,marginBottom:4}}>
+      <table style={{borderCollapse:"collapse",fontSize:12,width:"100%",minWidth:300}}>
+        {headers && headers.some(h=>h.trim()) && (
+          <thead>
+            <tr>
+              {headers.map((h,i)=>(
+                <th key={i} style={{padding:"6px 10px",background:"rgba(196,160,80,0.15)",border:"1px solid rgba(196,160,80,0.25)",color:"#c4a050",fontWeight:"bold",textAlign:"center",whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {rows.map((row,ri)=>(
+            <tr key={ri}>
+              {row.map((cell,ci)=>(
+                <td key={ci} style={{padding:"5px 10px",border:"1px solid rgba(196,160,80,0.15)",color: ci===0?"#c4a050":"#c8bfaf",background: ci===0?"rgba(196,160,80,0.06)":"transparent",textAlign:"center",whiteSpace:"nowrap",fontWeight:ci===0?"bold":"normal"}}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── TableEditor ───────────────────────────────────────────────────────────────
+function TableEditor({tableData, onChange}) {
+  const initTable = (r, c) => ({
+    headers: Array(c).fill(""),
+    rows: Array(r).fill(null).map(()=>Array(c).fill(""))
+  });
+
+  const [td, setTd] = useState(()=> tableData || initTable(3, 3));
+
+  function update(next) { setTd(next); onChange(next); }
+
+  function setHeader(ci, val) {
+    const t = {...td, headers:[...td.headers]};
+    t.headers[ci] = val;
+    update(t);
+  }
+  function setCell(ri, ci, val) {
+    const t = {...td, rows: td.rows.map((r,i)=>i===ri?[...r]:r)};
+    t.rows[ri][ci] = val;
+    update(t);
+  }
+  function addRow() {
+    update({...td, rows:[...td.rows, Array(td.headers.length).fill("")]});
+  }
+  function removeRow(ri) {
+    if(td.rows.length<=1) return;
+    update({...td, rows:td.rows.filter((_,i)=>i!==ri)});
+  }
+  function addCol() {
+    update({
+      headers:[...td.headers,""],
+      rows:td.rows.map(r=>[...r,""])
+    });
+  }
+  function removeCol(ci) {
+    if(td.headers.length<=1) return;
+    update({
+      headers:td.headers.filter((_,i)=>i!==ci),
+      rows:td.rows.map(r=>r.filter((_,i)=>i!==ci))
+    });
+  }
+
+  const cellStyle = {
+    padding:"4px 6px", border:"1px solid rgba(196,160,80,0.2)",
+    background:"rgba(255,255,255,0.04)", color:"#e8e0d0",
+    fontFamily:"Georgia", fontSize:12, width:"100%", outline:"none",
+    boxSizing:"border-box", textAlign:"center",
+  };
+
+  return (
+    <div style={{background:"rgba(196,160,80,0.04)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:4,padding:12,marginBottom:12}}>
+      <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>表エディター</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%"}}>
+          <thead>
+            <tr>
+              {td.headers.map((h,ci)=>(
+                <th key={ci} style={{padding:"2px 4px",position:"relative",minWidth:80}}>
+                  <input value={h} onChange={e=>setHeader(ci,e.target.value)}
+                    style={{...cellStyle, background:"rgba(196,160,80,0.1)", color:"#c4a050", fontWeight:"bold"}}
+                    placeholder={`列${ci+1}`}/>
+                  {td.headers.length>1&&<button onClick={()=>removeCol(ci)} style={{position:"absolute",top:-6,right:-4,width:14,height:14,borderRadius:"50%",border:"none",background:"#c0392b",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>×</button>}
+                </th>
+              ))}
+              <th style={{width:24}}/>
+            </tr>
+          </thead>
+          <tbody>
+            {td.rows.map((row,ri)=>(
+              <tr key={ri}>
+                {row.map((cell,ci)=>(
+                  <td key={ci} style={{padding:"2px 4px"}}>
+                    <input value={cell} onChange={e=>setCell(ri,ci,e.target.value)} style={cellStyle} placeholder="　"/>
+                  </td>
+                ))}
+                <td style={{width:24,paddingLeft:4}}>
+                  {td.rows.length>1&&<button onClick={()=>removeRow(ri)} style={{width:18,height:18,borderRadius:"50%",border:"none",background:"#c0392b",color:"#fff",fontSize:10,cursor:"pointer"}}>×</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <button onClick={addRow} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11}}>＋ 行を追加</button>
+        <button onClick={addCol} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11}}>＋ 列を追加</button>
+      </div>
+    </div>
+  );
+}
 
 // ── GenerateKPBtn ─────────────────────────────────────────────────────────────
 function GenerateKPBtn({question, onResult, disabled}) {
@@ -687,7 +876,15 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
     <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={parsed=>{applyParsed(parsed);}}/>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div>{!editQ&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
-    <label style={S.label}>問題文（英語） *</label><textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder="Enter the question text in English..."/>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+      <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
+      <button onClick={()=>set("tableData",form.tableData?null:{headers:["","",""],rows:[["","",""],["","",""],["","",""]]})}
+        style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(100,200,160,0.4)",color:form.tableData?"#e05a5a":"#4aad8b"}}>
+        {form.tableData?"🗑 表を削除":"＋ 表を追加"}
+      </button>
+    </div>
+    <textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder="Enter the question text in English..."/>
+    {form.tableData && <TableEditor tableData={form.tableData} onChange={td=>set("tableData",td)}/>}
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
     {form.choices.map((choice,idx)=>{const jaVal=(form.choicesJA||[])[idx]||"";const isTrans=!!translating[`cJA_${idx}`];return(<div key={idx} style={{marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4}}><button onClick={()=>set("correctIndex",idx)} style={{minWidth:32,height:36,borderRadius:4,border:`2px solid ${form.correctIndex===idx?"#4aad8b":"rgba(196,160,80,0.3)"}`,background:form.correctIndex===idx?"rgba(74,173,139,0.2)":"transparent",color:form.correctIndex===idx?"#4aad8b":"#5a6a7a",cursor:"pointer",fontSize:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center"}}>{labels[idx]}</button><input value={choice} onChange={e=>setChoice(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1}} placeholder={`Choice ${labels[idx]}`}/>{form.choices.length>2&&<button onClick={()=>removeChoice(idx)} style={{...S.btn("danger"),padding:"6px 8px",minWidth:32,height:36}}><Ic.trash/></button>}</div><div style={{display:"flex",gap:6,alignItems:"center",paddingLeft:38}}><input value={jaVal} onChange={e=>setChoiceJA(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1,fontSize:13,borderColor:jaVal?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.15)"}} placeholder={`選択肢 ${labels[idx]} の日本語訳`}/>{choice.trim()&&<TranslateBtn loading={isTrans} onClick={()=>translateChoiceJA(idx)}/>}</div></div>);})}
     {form.choices.length<5&&<button onClick={addChoice} style={{...S.btn("ghost"),fontSize:12,marginBottom:14}}>+ 選択肢を追加</button>}
@@ -720,6 +917,7 @@ export default function App(){
   const [page,setPage]=useState("home");
   const [editQ,setEditQ]=useState(null);
   const [editNote,setEditNote]=useState(null);
+  const [viewNote,setViewNote]=useState(null);
   const [practiceMode,setPracticeMode]=useState("due");
   const [singleQId,setSingleQId]=useState(null);
   const [showSettings,setShowSettings]=useState(false);
@@ -763,7 +961,7 @@ export default function App(){
   if(!dataLoaded) return(<div style={{...S.app,alignItems:"center",justifyContent:"center"}}><div style={{color:"#c4a050",letterSpacing:"0.2em",fontSize:12}}>データを読み込み中...</div></div>);
 
   const navItems=[{key:"home",label:"Home",icon:Ic.home},{key:"list",label:"一覧",icon:Ic.list},{key:"add",label:"登録",icon:Ic.plus},{key:"practice",label:"演習",icon:Ic.play},{key:"notes",label:"ノート",icon:Ic.note}];
-  const showNav=page!=="add"&&page!=="note-edit";
+  const showNav=page!=="add"&&page!=="note-edit"&&page!=="note-view";
 
   return(<div style={S.app}>
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
@@ -784,9 +982,10 @@ export default function App(){
       {page==="list"&&<QuestionList questions={questions} setPage={setPage} setEditQ={setEditQ} deleteQ={deleteQ} startSingleQ={startSingleQ}/>}
       {page==="add"&&<AddQuestion editQ={editQ} setEditQ={setEditQ} addQ={addQ} updateQ={updateQ} questions={questions} setPage={setPage}/>}
       {page==="practice"&&<Practice questions={questions} updateQ={updateQ} initialMode={practiceMode} singleQId={singleQId} clearSingleQ={()=>setSingleQId(null)} onOpenSettings={()=>setShowSettings(true)}/>}
-      {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} deleteNote={deleteNote}/>}
+      {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
+      {page==="note-view"&&<NoteViewer note={viewNote} questions={questions} setPage={setPage} setEditNote={setEditNote}/>}
     </div>
-    {showNav&&<div style={S.nav}>{navItems.map(item=>(<button key={item.key} style={S.navBtn(page===item.key||(item.key==="notes"&&page==="note-edit"))} onClick={()=>{setEditQ(null);setSingleQId(null);setPage(item.key);}}><item.icon/>{item.label}{item.key==="practice"&&dueCount>0&&<span style={{position:"absolute",top:0,right:4,background:"#4aad8b",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>{dueCount}</span>}</button>))}</div>}
+    {showNav&&<div style={S.nav}>{navItems.map(item=>(<button key={item.key} style={S.navBtn(page===item.key||(item.key==="notes"&&(page==="note-edit"||page==="note-view")))} onClick={()=>{setEditQ(null);setSingleQId(null);setPage(item.key);}}><item.icon/>{item.label}{item.key==="practice"&&dueCount>0&&<span style={{position:"absolute",top:0,right:4,background:"#4aad8b",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>{dueCount}</span>}</button>))}</div>}
   </div>);
 }
