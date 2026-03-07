@@ -910,7 +910,17 @@ Rules:
         const reply = await askClaude(apiKey, [{role:"user", content: AI_PROMPT(rawText)}]);
         // Strip markdown fences if present
         const cleaned = reply.replace(/^```[a-z]*\n?/i,"").replace(/\n?```$/,"").trim();
-        const data = JSON.parse(cleaned);
+        // Sanitize control characters inside JSON string values (tabs, carriage returns, etc.)
+        const sanitized = cleaned.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, " ")
+          .replace(/\t/g, "\\t")
+          .replace(/\r/g, "\\r");
+        let data;
+        try {
+          data = JSON.parse(sanitized);
+        } catch(parseErr) {
+          // Last resort: ask Claude again with stricter instruction
+          throw new Error("JSONの解析に失敗しました。テキストに特殊文字が含まれている可能性があります。(" + parseErr.message + ")");
+        }
         if (!data.questionEN) throw new Error("questionENが取得できませんでした");
         if (!data.choices || data.choices.length < 2) throw new Error("選択肢が取得できませんでした");
         setParsed({
