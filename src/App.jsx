@@ -531,9 +531,7 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
 
 // ── QuestionContent (auto-table from tab text) ────────────────────────────────
 function parseTabTable(text) {
-  const lines = text.split(/
-?
-/);
+  const lines = text.split(/\r?\n/);
   const isTabLine = l => l.includes('	');
   const firstTabIdx = lines.findIndex(isTabLine);
   if (firstTabIdx === -1) return null; // no tabs → not a table
