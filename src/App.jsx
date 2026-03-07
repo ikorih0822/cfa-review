@@ -532,7 +532,7 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
 // ── QuestionContent (auto-table from tab text) ────────────────────────────────
 function parseTabTable(text) {
   const lines = text.split(/\r?\n/);
-  const isTabLine = l => l.includes('	');
+  const isTabLine = l => l.includes('\t');
   const firstTabIdx = lines.findIndex(isTabLine);
   if (firstTabIdx === -1) return null; // no tabs → not a table
 
@@ -543,17 +543,15 @@ function parseTabTable(text) {
     const prevLine = lines[firstTabIdx - 1];
     if (/[　＀-￯]/.test(prevLine) || /\S+\s{2,}\S/.test(prevLine)) {
       headers = prevLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
-      questionText = lines.slice(0, firstTabIdx - 1).join('
-').trim();
+      questionText = lines.slice(0, firstTabIdx - 1).join('\n').trim();
     } else {
-      questionText = lines.slice(0, firstTabIdx).join('
-').trim();
+      questionText = lines.slice(0, firstTabIdx).join('\n').trim();
     }
   }
 
   // Parse table rows from firstTabIdx onwards
   const tableLines = lines.slice(firstTabIdx);
-  const cleanCells = l => l.split('	').map(c=>c.trim()).filter(c=>c!=='');
+  const cleanCells = l => l.split('\t').map(c=>c.trim()).filter(c=>c!=='');
   const maxCols = Math.max(...tableLines.filter(isTabLine).map(l=>cleanCells(l).length), headers?headers.length+1:0);
 
   const rows = tableLines.map(l => {
