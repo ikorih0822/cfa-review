@@ -864,23 +864,76 @@ ${question.explanationEN}
 
 // ── QuickImport Modal ─────────────────────────────────────────────────────────
 function QuickImportModal({open, onClose, onImport}) {
-  const [raw, setRaw] = useState("");
+  const [rawText, setRawText] = useState("");
   const [parsed, setParsed] = useState(null);
   const [error, setError] = useState(null);
+  const [useAI, setUseAI] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
-  function handleParse() {
-    if (!raw.trim()) return;
+  const AI_PROMPT = (text) => `You are parsing a CFA exam question from raw copied text. Extract and return ONLY valid JSON (no markdown fences, no explanation).
+
+Raw text:
+---
+${text}
+---
+
+Return this exact JSON structure:
+{
+  "questionEN": "...",
+  "choices": ["choice A", "choice B", "choice C"],
+  "correctIndex": 0,
+  "explanationEN": "..."
+}
+
+Rules:
+- questionEN: the question text. If it contains a table, format it as follows:
+  * One line before the table with column headers separated by 2+ spaces (e.g. "Company A  Company B  Industry Average")
+  * Each data row on its own line with cells separated by tab characters
+  * Section headers (e.g. "ASSETS", "LIABILITIES AND SHAREHOLDERS' EQUITY") on their own line with no tabs
+  * Example row: "Cash and cash equivalents\t5\t5\t7"
+- choices: array of answer text only (no "A." prefix)
+- correctIndex: 0-based index of the correct answer
+- explanationEN: the explanation/feedback text`;
+
+  async function handleParse() {
+    if (!rawText.trim()) return;
     setError(null);
+
+    if (useAI) {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        setError("AIを使うにはAPIキーが必要です。設定（⚙️）から入力してください。");
+        return;
+      }
+      setAiLoading(true);
+      try {
+        const reply = await askClaude(apiKey, [{role:"user", content: AI_PROMPT(rawText)}]);
+        // Strip markdown fences if present
+        const cleaned = reply.replace(/^```[a-z]*
+?/i,"").replace(/
+?```$/,"").trim();
+        const data = JSON.parse(cleaned);
+        if (!data.questionEN) throw new Error("questionENが取得できませんでした");
+        if (!data.choices || data.choices.length < 2) throw new Error("選択肢が取得できませんでした");
+        setParsed({
+          questionEN: data.questionEN,
+          choices: data.choices,
+          correctIndex: typeof data.correctIndex === "number" ? data.correctIndex : 0,
+          explanationEN: data.explanationEN || "",
+        });
+      } catch(e) {
+        setError("AI解析エラー: " + e.message);
+      } finally {
+        setAiLoading(false);
+      }
+      return;
+    }
+
+    // Normal parse
     try {
-      const result = parseQuestion(raw);
-      if (!result.questionEN) {
-        setError("問題文を検出できませんでした。テキストを確認してください。");
-        return;
-      }
-      if (result.choices.filter(c => c).length < 2) {
-        setError("選択肢を2つ以上検出できませんでした。");
-        return;
-      }
+      const result = parseQuestion(rawText);
+      if (!result.questionEN) { setError("問題文を検出できませんでした。"); return; }
+      if (result.choices.filter(c=>c).length < 2) { setError("選択肢を2つ以上検出できませんでした。"); return; }
       setParsed(result);
     } catch(e) {
       setError("解析エラー: " + e.message);
@@ -890,11 +943,11 @@ function QuickImportModal({open, onClose, onImport}) {
   function handleImport() {
     if (!parsed) return;
     onImport(parsed);
-    setRaw(""); setParsed(null); setError(null); onClose();
+    setRawText(""); setParsed(null); setError(null); onClose();
   }
 
   function handleClose() {
-    setRaw(""); setParsed(null); setError(null); onClose();
+    setRawText(""); setParsed(null); setError(null); onClose();
   }
 
   if (!open) return null;
@@ -910,31 +963,64 @@ function QuickImportModal({open, onClose, onImport}) {
 
         {!parsed ? (<>
           <div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.7,marginBottom:10}}>
-            問題文・選択肢・解説をまとめてコピペしてください。自動で解析します。<br/>
-            ⚠️ 表を含む問題は問題文欄に取り込まれます。登録後に手動で編集してください。
+            問題文・選択肢・解説をまとめてコピペしてください。
           </div>
           <textarea
-            value={raw}
-            onChange={e=>setRaw(e.target.value)}
+            value={rawText}
+            onChange={e=>setRawText(e.target.value)}
             style={{...S.textarea, minHeight:220, fontSize:13}}
-            placeholder={"問題文と選択肢・解説をここに貼り付け...\n\n例:\nWhich of the following...\nA. Option one\nB. Option two\nCorrect Answer:\nB. Option two\nFeedback\nB is correct because..."}
+            placeholder={"問題文と選択肢・解説をここに貼り付け..."}
           />
+
+          {/* AI checkbox */}
+          <div
+            onClick={()=>setUseAI(v=>!v)}
+            style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:14,padding:"10px 12px",
+              background:useAI?"rgba(155,143,212,0.1)":"rgba(255,255,255,0.03)",
+              border:`1px solid ${useAI?"rgba(155,143,212,0.45)":"rgba(196,160,80,0.15)"}`,
+              borderRadius:5,cursor:"pointer",userSelect:"none"}}>
+            <div style={{width:18,height:18,borderRadius:3,border:`2px solid ${useAI?"#b0a0e0":"#4a5a6a"}`,
+              background:useAI?"#b0a0e0":"transparent",display:"flex",alignItems:"center",
+              justifyContent:"center",flexShrink:0,marginTop:1}}>
+              {useAI && <span style={{color:"#0d1b2e",fontSize:13,fontWeight:"bold",lineHeight:1}}>✓</span>}
+            </div>
+            <div>
+              <div style={{fontSize:13,color:useAI?"#b0a0e0":"#8a9ab0",fontWeight:"bold",marginBottom:2}}>
+                ✨ AIで表を自動構造化する
+              </div>
+              <div style={{fontSize:11,color:"#5a6a7a",lineHeight:1.6}}>
+                表を含む問題に有効。Claude APIが表をタブ区切り形式に変換し、演習中に整形表示されます。APIキーが必要です。
+              </div>
+            </div>
+          </div>
+
           {error && <div style={{background:"rgba(224,90,90,0.1)",border:"1px solid rgba(224,90,90,0.3)",borderRadius:4,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#e08a8a"}}>⚠️ {error}</div>}
-          <button onClick={handleParse} disabled={!raw.trim()} style={{...S.btn("primary"),width:"100%",padding:12,opacity:!raw.trim()?0.4:1}}>
-            解析する →
+          <button onClick={handleParse} disabled={!rawText.trim()||aiLoading}
+            style={{...S.btn(useAI?"blue":"primary"),width:"100%",padding:12,opacity:(!rawText.trim()||aiLoading)?0.4:1,
+              display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {aiLoading
+              ? <><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⟳</span> AI解析中...</>
+              : useAI ? "✨ AIで解析する →" : "解析する →"
+            }
           </button>
         </>) : (<>
-          <div style={{fontSize:11,color:"#4aad8b",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>✓ 解析完了。内容を確認してください。</div>
+          <div style={{fontSize:11,color:useAI?"#b0a0e0":"#4aad8b",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+            {useAI?"✨ AI解析完了。":"✓ 解析完了。"}内容を確認してください。
+          </div>
 
           <div style={{marginBottom:12}}>
             <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>問題文</div>
-            <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",fontSize:13,color:"#c8bfaf",lineHeight:1.6,border:"1px solid rgba(196,160,80,0.2)",whiteSpace:"pre-wrap"}}>{parsed.questionEN}</div>
+            <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",border:"1px solid rgba(196,160,80,0.2)"}}>
+              <QuestionContent text={parsed.questionEN}/>
+            </div>
           </div>
 
           <div style={{marginBottom:12}}>
             <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>選択肢</div>
             {parsed.choices.filter(c=>c).map((c,i)=>(
-              <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"8px 10px",borderRadius:4,border:`1px solid ${i===parsed.correctIndex?"rgba(74,173,139,0.5)":"rgba(196,160,80,0.15)"}`,background:i===parsed.correctIndex?"rgba(74,173,139,0.08)":"rgba(255,255,255,0.02)"}}>
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,padding:"8px 10px",borderRadius:4,
+                border:`1px solid ${i===parsed.correctIndex?"rgba(74,173,139,0.5)":"rgba(196,160,80,0.15)"}`,
+                background:i===parsed.correctIndex?"rgba(74,173,139,0.08)":"rgba(255,255,255,0.02)"}}>
                 <span style={{fontSize:12,fontWeight:"bold",color:i===parsed.correctIndex?"#4aad8b":"#5a6a7a",minWidth:20}}>{labels[i]}.</span>
                 <span style={{fontSize:13,color:i===parsed.correctIndex?"#4aad8b":"#c8bfaf",flex:1,lineHeight:1.5}}>{c}</span>
                 {i===parsed.correctIndex&&<span style={{fontSize:10,color:"#4aad8b"}}>✓ 正解</span>}
