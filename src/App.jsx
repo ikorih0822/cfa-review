@@ -381,7 +381,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   return(<div>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button><div style={{flex:1,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}><div style={{width:`${(qIdx/queue.length)*100}%`,height:"100%",background:"#c4a050",borderRadius:2,transition:"width 0.3s"}}/></div><div style={{fontSize:11,color:"#7a8a9a",minWidth:48,textAlign:"right"}}>{qIdx+1} / {queue.length}</div></div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}><span style={S.tag()}>{q.topic}</span><span style={S.tag(diffColor(q.difficulty))}>{q.difficulty}</span><SRBadge q={q}/></div>
-    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8"}}>{q.questionEN}</div><TableDisplay tableData={q.tableData||null}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
+    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
     {q.choices.some((_,i)=>(q.choicesJA||[])[i]?.trim())&&<div style={{marginBottom:6}}><button onClick={()=>setShowChoicesJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showChoicesJA?<Ic.eyeOff/>:<Ic.eye/>} 選択肢の日本語訳</button></div>}
     <div style={{marginBottom:10}}>{q.choices.filter(c=>c.trim()).map((choice,idx)=>{const jaText=(q.choicesJA||[])[idx];return(<button key={idx} style={S.choiceBtn(choiceState(idx))} onClick={()=>handleChoice(idx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[idx]}.</span><span style={{lineHeight:1.5}}>{choice}</span></div>{showChoicesJA&&jaText&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{jaText}</div>}</div>{choiceState(idx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(idx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(idx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>);})}</div>
     {answered&&<div>
@@ -426,13 +426,27 @@ function NoteViewer({note, questions, setPage, setEditNote}) {
       </div>
 
       <div style={{...S.card,borderColor:"rgba(196,160,80,0.3)",marginBottom:12}}>
+      <style>{`
+        .note-body h3{color:#f0e8d8;font-size:18px;margin:8px 0 4px;font-family:Georgia}
+        .note-body h5{color:#a0b0c0;font-size:11px;margin:4px 0;font-family:Georgia}
+        .note-body ul{margin:4px 0;padding-left:20px}
+        .note-body li{margin:2px 0;color:#d8d0c0}
+        .note-body p{margin:4px 0;color:#d8d0c0}
+        .note-body b,.note-body strong{color:#f0e8d8}
+      `}</style>
         <div style={{fontSize:22,fontWeight:"bold",color:"#f0e8d8",lineHeight:1.4,marginBottom:8}}>{note.title||"（タイトルなし）"}</div>
         <div style={{fontSize:11,color:"#4a5a6a",marginBottom:16,display:"flex",gap:12}}>
           {note.createdAt && <span>作成: {new Date(note.createdAt).toLocaleDateString("ja-JP")}</span>}
           {note.updatedAt && note.updatedAt!==note.createdAt && <span>更新: {new Date(note.updatedAt).toLocaleDateString("ja-JP")}</span>}
         </div>
-        <div style={{fontSize:14,color:"#d8d0c0",lineHeight:1.9,whiteSpace:"pre-wrap",borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14}}>
-          {note.content || <span style={{color:"#4a5a6a"}}>内容がありません</span>}
+        <div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14}}>
+          {note.content
+            ? <div
+                style={{fontSize:14,color:"#d8d0c0",lineHeight:1.9}}
+                className="note-body" dangerouslySetInnerHTML={{__html: note.content}}
+              />
+            : <span style={{color:"#4a5a6a",fontSize:13}}>内容がありません</span>
+          }
         </div>
       </div>
 
@@ -465,7 +479,7 @@ function NoteList({notes,questions,setPage,setEditNote,setViewNote,deleteNote}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,color:"#f0e8d8",fontWeight:"bold",marginBottom:4}}>{note.title||"（タイトルなし）"}</div>
-            <div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.5,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{note.content.slice(0,120)}{note.content.length>120?"…":""}</div>
+            <div style={{fontSize:12,color:"#7a8a9a",lineHeight:1.5,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{(note.content||"").replace(/<[^>]+>/g,"").slice(0,120)}{(note.content||"").replace(/<[^>]+>/g,"").length>120?"…":""}</div>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
               {linkedQs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),display:"inline-flex",alignItems:"center",gap:3}}><Ic.link/>{q.topic.split(" ")[0]}</span>)}</div>}
               {note.updatedAt&&<span style={{fontSize:10,color:"#3a4a5a"}}>{new Date(note.updatedAt).toLocaleDateString("ja-JP")}</span>}
@@ -483,11 +497,225 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
   const [form,setForm]=useState(()=>editNote?{...editNote}:{...BLANK_NOTE,id:uid(),createdAt:new Date().toISOString()});
   const [showPicker,setShowPicker]=useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  function submit(){if(!form.title.trim()&&!form.content.trim())return alert("タイトルまたは内容を入力してください");const saved={...form,updatedAt:new Date().toISOString()};editNote?updateNote(saved):addNote(saved);setEditNote(null);setPage("notes");}
+  function submit(){
+    const plainText=(form.content||"").replace(/<[^>]+>/g,"").trim();
+    if(!form.title.trim()&&!plainText)return alert("タイトルまたは内容を入力してください");
+    const saved={...form,updatedAt:new Date().toISOString()};
+    editNote?updateNote(saved):addNote(saved);setEditNote(null);setPage("notes");
+  }
   const linkedQs=(form.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);
-  return(<div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditNote(null);setPage("notes");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editNote?"ノートを編集":"新規ノート"}</div></div><label style={S.label}>タイトル</label><input value={form.title} onChange={e=>set("title",e.target.value)} style={S.input} placeholder="ノートのタイトル..."/><label style={S.label}>内容</label><textarea value={form.content} onChange={e=>set("content",e.target.value)} style={{...S.textarea,minHeight:200}} placeholder="まとめ・メモ・気づきなど..."/><div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div><button onClick={()=>setShowPicker(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showPicker?"閉じる":"問題を紐づける"}</button></div>{linkedQs.length>0&&<div style={{marginBottom:10}}>{linkedQs.map(q=>(<div key={q.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{flex:1}}><div style={{fontSize:12,color:"#a0b0c0"}}>{q.questionEN.slice(0,70)}…</div></div><button onClick={()=>set("relatedIds",(form.relatedIds||[]).filter(i=>i!==q.id))} style={{...S.btn("danger"),padding:"4px 7px",fontSize:11}}>×</button></div>))}</div>}{showPicker&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}</div><button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>{editNote?"変更を保存する":"ノートを保存する"}</button></div>);
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>{setEditNote(null);setPage("notes");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
+        <div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editNote?"ノートを編集":"新規ノート"}</div>
+      </div>
+      <label style={S.label}>タイトル</label>
+      <input value={form.title} onChange={e=>set("title",e.target.value)} style={S.input} placeholder="ノートのタイトル..."/>
+      <label style={S.label}>内容</label>
+      <RichTextEditor value={form.content||""} onChange={html=>set("content",html)}/>
+      <div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div>
+          <button onClick={()=>setShowPicker(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showPicker?"閉じる":"問題を紐づける"}</button>
+        </div>
+        {linkedQs.length>0&&<div style={{marginBottom:10}}>{linkedQs.map(q=>(<div key={q.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{flex:1}}><div style={{fontSize:12,color:"#a0b0c0"}}>{q.questionEN.slice(0,70)}…</div></div><button onClick={()=>set("relatedIds",(form.relatedIds||[]).filter(i=>i!==q.id))} style={{...S.btn("danger"),padding:"4px 7px",fontSize:11}}>×</button></div>))}</div>}
+        {showPicker&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}
+      </div>
+      <button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>{editNote?"変更を保存する":"ノートを保存する"}</button>
+    </div>
+  );
 }
 
+
+
+// ── QuestionContent (auto-table from tab text) ────────────────────────────────
+function parseTabTable(text) {
+  const lines = text.split(/
+?
+/);
+  const isTabLine = l => l.includes('	');
+  const firstTabIdx = lines.findIndex(isTabLine);
+  if (firstTabIdx === -1) return null; // no tabs → not a table
+
+  // Detect column headers: line just before first tab line, split by ideographic spaces
+  let headers = null;
+  let questionText = '';
+  if (firstTabIdx > 0) {
+    const prevLine = lines[firstTabIdx - 1];
+    if (/[　＀-￯]/.test(prevLine) || /\S+\s{2,}\S/.test(prevLine)) {
+      headers = prevLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
+      questionText = lines.slice(0, firstTabIdx - 1).join('
+').trim();
+    } else {
+      questionText = lines.slice(0, firstTabIdx).join('
+').trim();
+    }
+  }
+
+  // Parse table rows from firstTabIdx onwards
+  const tableLines = lines.slice(firstTabIdx);
+  const cleanCells = l => l.split('	').map(c=>c.trim()).filter(c=>c!=='');
+  const maxCols = Math.max(...tableLines.filter(isTabLine).map(l=>cleanCells(l).length), headers?headers.length+1:0);
+
+  const rows = tableLines.map(l => {
+    if (!isTabLine(l)) return { type:'section', text:l.trim() };
+    return { type:'data', cells:cleanCells(l) };
+  }).filter(r => r.type==='data' || r.text);
+
+  return { questionText, headers, rows, maxCols };
+}
+
+function QuestionContent({text}) {
+  if (!text) return null;
+  const parsed = parseTabTable(text);
+  if (!parsed) {
+    return <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap"}}>{text}</div>;
+  }
+  const { questionText, headers, rows, maxCols } = parsed;
+  const th = {padding:"5px 8px",background:"rgba(196,160,80,0.15)",border:"1px solid rgba(196,160,80,0.25)",color:"#c4a050",fontWeight:"bold",textAlign:"center",fontSize:11,whiteSpace:"nowrap"};
+  const td0 = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.15)",color:"#c4a050",background:"rgba(196,160,80,0.06)",fontSize:12,fontWeight:"bold",whiteSpace:"nowrap"};
+  const tdn = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#c8bfaf",fontSize:12,textAlign:"right",whiteSpace:"nowrap"};
+  const tsec = {padding:"5px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#a89060",fontSize:11,fontWeight:"bold",background:"rgba(196,160,80,0.04)",letterSpacing:"0.05em"};
+  return (
+    <div>
+      {questionText && <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap",marginBottom:8}}>{questionText}</div>}
+      <div style={{overflowX:"auto",marginTop:4}}>
+        <table style={{borderCollapse:"collapse",fontSize:12,minWidth:280}}>
+          {headers && headers.length>0 && (
+            <thead><tr>
+              <th style={th}></th>
+              {headers.map((h,i)=><th key={i} style={th}>{h}</th>)}
+            </tr></thead>
+          )}
+          <tbody>
+            {rows.map((row,ri)=>{
+              if(row.type==='section') return(
+                <tr key={ri}><td colSpan={maxCols} style={tsec}>{row.text}</td></tr>
+              );
+              return(
+                <tr key={ri}>
+                  {row.cells.map((cell,ci)=><td key={ci} style={ci===0?td0:tdn}>{cell}</td>)}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── RichTextEditor ────────────────────────────────────────────────────────────
+const NOTE_COLORS = [
+  {label:"デフォルト", color:"#d8d0c0"},
+  {label:"金", color:"#c4a050"},
+  {label:"青", color:"#6b9fd4"},
+  {label:"緑", color:"#4aad8b"},
+  {label:"赤", color:"#e05a5a"},
+  {label:"紫", color:"#b0a0e0"},
+];
+const HIGHLIGHT_COLORS = [
+  {label:"黄", color:"rgba(196,160,50,0.35)"},
+  {label:"青", color:"rgba(100,160,220,0.3)"},
+  {label:"緑", color:"rgba(74,173,139,0.3)"},
+  {label:"赤", color:"rgba(224,90,90,0.3)"},
+];
+
+function RichTextEditor({value, onChange}) {
+  const editorRef = useRef(null);
+  const [showColors, setShowColors] = useState(false);
+  const [showHighlight, setShowHighlight] = useState(false);
+  const isInit = useRef(false);
+
+  useEffect(()=>{
+    if(editorRef.current && !isInit.current){
+      editorRef.current.innerHTML = value || '';
+      isInit.current = true;
+    }
+  },[]);
+
+  function exec(cmd, val=null){
+    editorRef.current.focus();
+    document.execCommand(cmd, false, val);
+    onChange(editorRef.current.innerHTML);
+    setShowColors(false); setShowHighlight(false);
+  }
+
+  function handleInput(){ onChange(editorRef.current.innerHTML); }
+
+  const toolBtn = (active) => ({
+    padding:"5px 8px", borderRadius:3, border:"none", cursor:"pointer", fontSize:13,
+    fontFamily:"Georgia", background:active?"rgba(196,160,80,0.25)":"rgba(255,255,255,0.05)",
+    color:active?"#c4a050":"#a0b0c0", minWidth:28, textAlign:"center",
+  });
+
+  return (
+    <div style={{marginBottom:12}}>
+      {/* Toolbar */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"6px 8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(196,160,80,0.2)",borderBottom:"none",borderRadius:"4px 4px 0 0",alignItems:"center"}}>
+        <button onMouseDown={e=>{e.preventDefault();exec("bold");}} style={{...toolBtn(false),fontWeight:"bold"}}>B</button>
+        <button onMouseDown={e=>{e.preventDefault();exec("italic");}} style={{...toolBtn(false),fontStyle:"italic"}}>I</button>
+        <button onMouseDown={e=>{e.preventDefault();exec("underline");}} style={{...toolBtn(false),textDecoration:"underline"}}>U</button>
+        <div style={{width:1,height:18,background:"rgba(196,160,80,0.2)",margin:"0 2px"}}/>
+        <button onMouseDown={e=>{e.preventDefault();exec("formatBlock","h3");}} style={{...toolBtn(false),fontSize:11}}>大</button>
+        <button onMouseDown={e=>{e.preventDefault();exec("formatBlock","p");}} style={{...toolBtn(false),fontSize:11}}>標</button>
+        <button onMouseDown={e=>{e.preventDefault();exec("formatBlock","h5");}} style={{...toolBtn(false),fontSize:11}}>小</button>
+        <div style={{width:1,height:18,background:"rgba(196,160,80,0.2)",margin:"0 2px"}}/>
+        <button onMouseDown={e=>{e.preventDefault();exec("insertUnorderedList");}} style={toolBtn(false)}>•</button>
+        <div style={{width:1,height:18,background:"rgba(196,160,80,0.2)",margin:"0 2px"}}/>
+        {/* Text color */}
+        <div style={{position:"relative"}}>
+          <button onMouseDown={e=>{e.preventDefault();setShowColors(v=>!v);setShowHighlight(false);}} style={{...toolBtn(showColors),fontSize:11}}>A色</button>
+          {showColors&&(
+            <div style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#131f30",border:"1px solid rgba(196,160,80,0.3)",borderRadius:4,padding:6,display:"flex",gap:4,flexWrap:"wrap",width:140}}>
+              {NOTE_COLORS.map(c=>(
+                <button key={c.color} onMouseDown={e=>{e.preventDefault();exec("foreColor",c.color);}} title={c.label}
+                  style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${c.color}`,background:c.color,cursor:"pointer"}}/>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Highlight */}
+        <div style={{position:"relative"}}>
+          <button onMouseDown={e=>{e.preventDefault();setShowHighlight(v=>!v);setShowColors(false);}} style={{...toolBtn(showHighlight),fontSize:11}}>蛍光</button>
+          {showHighlight&&(
+            <div style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#131f30",border:"1px solid rgba(196,160,80,0.3)",borderRadius:4,padding:6,display:"flex",gap:4}}>
+              {HIGHLIGHT_COLORS.map(c=>(
+                <button key={c.color} onMouseDown={e=>{e.preventDefault();exec("hiliteColor",c.color);}} title={c.label}
+                  style={{width:20,height:20,borderRadius:3,border:"1px solid rgba(255,255,255,0.2)",background:c.color,cursor:"pointer"}}/>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {/* Editable area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onBlur={handleInput}
+        style={{
+          minHeight:220, padding:"10px 12px",
+          background:"rgba(255,255,255,0.04)",
+          border:"1px solid rgba(196,160,80,0.25)",
+          borderRadius:"0 0 4px 4px",
+          color:"#d8d0c0", fontSize:14, lineHeight:1.8,
+          outline:"none", fontFamily:"Georgia",
+          overflowY:"auto",
+        }}
+      />
+      <style>{`
+        [contenteditable] h3{color:#f0e8d8;font-size:18px;margin:8px 0 4px}
+        [contenteditable] h5{color:#a0b0c0;font-size:11px;margin:4px 0}
+        [contenteditable] ul{margin:4px 0;padding-left:20px}
+        [contenteditable] li{margin:2px 0}
+        [contenteditable] p{margin:4px 0}
+      `}</style>
+    </div>
+  );
+}
 
 // ── Question Parser ───────────────────────────────────────────────────────────
 function parseQuestion(raw) {
@@ -587,127 +815,9 @@ function parseQuestion(raw) {
 
 
 
-// ── TableDisplay ──────────────────────────────────────────────────────────────
-function TableDisplay({tableData}) {
-  if (!tableData) return null;
-  const { headers, rows } = tableData;
-  return (
-    <div style={{overflowX:"auto",marginTop:10,marginBottom:4}}>
-      <table style={{borderCollapse:"collapse",fontSize:12,width:"100%",minWidth:300}}>
-        {headers && headers.some(h=>h.trim()) && (
-          <thead>
-            <tr>
-              {headers.map((h,i)=>(
-                <th key={i} style={{padding:"6px 10px",background:"rgba(196,160,80,0.15)",border:"1px solid rgba(196,160,80,0.25)",color:"#c4a050",fontWeight:"bold",textAlign:"center",whiteSpace:"nowrap"}}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-        )}
-        <tbody>
-          {rows.map((row,ri)=>(
-            <tr key={ri}>
-              {row.map((cell,ci)=>(
-                <td key={ci} style={{padding:"5px 10px",border:"1px solid rgba(196,160,80,0.15)",color: ci===0?"#c4a050":"#c8bfaf",background: ci===0?"rgba(196,160,80,0.06)":"transparent",textAlign:"center",whiteSpace:"nowrap",fontWeight:ci===0?"bold":"normal"}}>{cell}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+// TableDisplay replaced by QuestionContent
 
-// ── TableEditor ───────────────────────────────────────────────────────────────
-function TableEditor({tableData, onChange}) {
-  const initTable = (r, c) => ({
-    headers: Array(c).fill(""),
-    rows: Array(r).fill(null).map(()=>Array(c).fill(""))
-  });
-
-  const [td, setTd] = useState(()=> tableData || initTable(3, 3));
-
-  function update(next) { setTd(next); onChange(next); }
-
-  function setHeader(ci, val) {
-    const t = {...td, headers:[...td.headers]};
-    t.headers[ci] = val;
-    update(t);
-  }
-  function setCell(ri, ci, val) {
-    const t = {...td, rows: td.rows.map((r,i)=>i===ri?[...r]:r)};
-    t.rows[ri][ci] = val;
-    update(t);
-  }
-  function addRow() {
-    update({...td, rows:[...td.rows, Array(td.headers.length).fill("")]});
-  }
-  function removeRow(ri) {
-    if(td.rows.length<=1) return;
-    update({...td, rows:td.rows.filter((_,i)=>i!==ri)});
-  }
-  function addCol() {
-    update({
-      headers:[...td.headers,""],
-      rows:td.rows.map(r=>[...r,""])
-    });
-  }
-  function removeCol(ci) {
-    if(td.headers.length<=1) return;
-    update({
-      headers:td.headers.filter((_,i)=>i!==ci),
-      rows:td.rows.map(r=>r.filter((_,i)=>i!==ci))
-    });
-  }
-
-  const cellStyle = {
-    padding:"4px 6px", border:"1px solid rgba(196,160,80,0.2)",
-    background:"rgba(255,255,255,0.04)", color:"#e8e0d0",
-    fontFamily:"Georgia", fontSize:12, width:"100%", outline:"none",
-    boxSizing:"border-box", textAlign:"center",
-  };
-
-  return (
-    <div style={{background:"rgba(196,160,80,0.04)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:4,padding:12,marginBottom:12}}>
-      <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>表エディター</div>
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%"}}>
-          <thead>
-            <tr>
-              {td.headers.map((h,ci)=>(
-                <th key={ci} style={{padding:"2px 4px",position:"relative",minWidth:80}}>
-                  <input value={h} onChange={e=>setHeader(ci,e.target.value)}
-                    style={{...cellStyle, background:"rgba(196,160,80,0.1)", color:"#c4a050", fontWeight:"bold"}}
-                    placeholder={`列${ci+1}`}/>
-                  {td.headers.length>1&&<button onClick={()=>removeCol(ci)} style={{position:"absolute",top:-6,right:-4,width:14,height:14,borderRadius:"50%",border:"none",background:"#c0392b",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>×</button>}
-                </th>
-              ))}
-              <th style={{width:24}}/>
-            </tr>
-          </thead>
-          <tbody>
-            {td.rows.map((row,ri)=>(
-              <tr key={ri}>
-                {row.map((cell,ci)=>(
-                  <td key={ci} style={{padding:"2px 4px"}}>
-                    <input value={cell} onChange={e=>setCell(ri,ci,e.target.value)} style={cellStyle} placeholder="　"/>
-                  </td>
-                ))}
-                <td style={{width:24,paddingLeft:4}}>
-                  {td.rows.length>1&&<button onClick={()=>removeRow(ri)} style={{width:18,height:18,borderRadius:"50%",border:"none",background:"#c0392b",color:"#fff",fontSize:10,cursor:"pointer"}}>×</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{display:"flex",gap:8,marginTop:8}}>
-        <button onClick={addRow} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11}}>＋ 行を追加</button>
-        <button onClick={addCol} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11}}>＋ 列を追加</button>
-      </div>
-    </div>
-  );
-}
-
+// TableEditor replaced by inline table input
 // ── GenerateKPBtn ─────────────────────────────────────────────────────────────
 function GenerateKPBtn({question, onResult, disabled}) {
   const [loading, setLoading] = useState(false);
@@ -876,15 +986,8 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
     <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={parsed=>{applyParsed(parsed);}}/>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div>{!editQ&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-      <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
-      <button onClick={()=>set("tableData",form.tableData?null:{headers:["","",""],rows:[["","",""],["","",""],["","",""]]})}
-        style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(100,200,160,0.4)",color:form.tableData?"#e05a5a":"#4aad8b"}}>
-        {form.tableData?"🗑 表を削除":"＋ 表を追加"}
-      </button>
-    </div>
-    <textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder="Enter the question text in English..."/>
-    {form.tableData && <TableEditor tableData={form.tableData} onChange={td=>set("tableData",td)}/>}
+    <label style={S.label}>問題文（英語） *</label>
+    <textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder={"Enter the question text in English...\n\n表がある場合：タブ区切りでそのままペーストすると自動で表として表示されます"}/>
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
     {form.choices.map((choice,idx)=>{const jaVal=(form.choicesJA||[])[idx]||"";const isTrans=!!translating[`cJA_${idx}`];return(<div key={idx} style={{marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4}}><button onClick={()=>set("correctIndex",idx)} style={{minWidth:32,height:36,borderRadius:4,border:`2px solid ${form.correctIndex===idx?"#4aad8b":"rgba(196,160,80,0.3)"}`,background:form.correctIndex===idx?"rgba(74,173,139,0.2)":"transparent",color:form.correctIndex===idx?"#4aad8b":"#5a6a7a",cursor:"pointer",fontSize:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center"}}>{labels[idx]}</button><input value={choice} onChange={e=>setChoice(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1}} placeholder={`Choice ${labels[idx]}`}/>{form.choices.length>2&&<button onClick={()=>removeChoice(idx)} style={{...S.btn("danger"),padding:"6px 8px",minWidth:32,height:36}}><Ic.trash/></button>}</div><div style={{display:"flex",gap:6,alignItems:"center",paddingLeft:38}}><input value={jaVal} onChange={e=>setChoiceJA(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1,fontSize:13,borderColor:jaVal?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.15)"}} placeholder={`選択肢 ${labels[idx]} の日本語訳`}/>{choice.trim()&&<TranslateBtn loading={isTrans} onClick={()=>translateChoiceJA(idx)}/>}</div></div>);})}
     {form.choices.length<5&&<button onClick={addChoice} style={{...S.btn("ghost"),fontSize:12,marginBottom:14}}>+ 選択肢を追加</button>}
