@@ -125,7 +125,7 @@ const S = {
   label:{display:"block",fontSize:11,letterSpacing:"0.12em",color:"#c4a050",textTransform:"uppercase",marginBottom:5},
   sectionTitle:{fontSize:11,letterSpacing:"0.2em",color:"#c4a050",textTransform:"uppercase",marginBottom:12,borderBottom:"1px solid rgba(196,160,80,0.2)",paddingBottom:6},
   tag:c=>({display:"inline-block",padding:"2px 8px",borderRadius:3,border:`1px solid ${c||"#c4a050"}40`,color:c||"#c4a050",fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",background:`${c||"#c4a050"}18`}),
-  choiceBtn:st=>({display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",padding:"12px 14px",borderRadius:4,marginBottom:8,transition:"all 0.2s",fontFamily:"'Georgia',serif",fontSize:14,lineHeight:1.5,border:`1px solid ${st==="correct"?"#4aad8b":st==="wrong"?"#e05a5a":st==="reveal-correct"?"#4aad8b":"rgba(196,160,80,0.2)"}`,background:st==="correct"?"rgba(74,173,139,0.12)":st==="wrong"?"rgba(224,90,90,0.12)":st==="reveal-correct"?"rgba(74,173,139,0.08)":"rgba(255,255,255,0.03)",color:st==="correct"?"#4aad8b":st==="wrong"?"#e05a5a":st==="reveal-correct"?"#4aad8b":"#e8e0d0",cursor:(st==="correct"||st==="wrong"||st==="reveal-correct")?"default":"pointer"}),
+  choiceBtn:st=>({display:"flex",alignItems:"center",gap:10,width:"100%",textAlign:"left",padding:"12px 14px",borderRadius:4,marginBottom:8,transition:"all 0.2s",fontFamily:"'Georgia',serif",fontSize:14,lineHeight:1.5,border:`1px solid ${st==="correct"?"#4aad8b":st==="wrong"?"#e05a5a":st==="reveal-correct"?"#4aad8b":st==="selected"?"rgba(196,160,80,0.7)":"rgba(196,160,80,0.2)"}`,background:st==="correct"?"rgba(74,173,139,0.12)":st==="wrong"?"rgba(224,90,90,0.12)":st==="reveal-correct"?"rgba(74,173,139,0.08)":st==="selected"?"rgba(196,160,80,0.1)":"rgba(255,255,255,0.03)",color:st==="correct"?"#4aad8b":st==="wrong"?"#e05a5a":st==="reveal-correct"?"#4aad8b":st==="selected"?"#c4a050":"#e8e0d0",cursor:(st==="correct"||st==="wrong"||st==="reveal-correct")?"default":"pointer"}),
 };
 
 // ── Login Screen ──────────────────────────────────────────────────────────────
@@ -351,13 +351,13 @@ function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
 
 // ── Practice ──────────────────────────────────────────────────────────────────
 function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSettings}){
-  const [filterTopic,setFilterTopic]=useState("All");const [srMode,setSrMode]=useState(initialMode||"due");const [queue,setQueue]=useState(null);const [qIdx,setQIdx]=useState(0);const [selected,setSelected]=useState(null);const [revealed,setRevealed]=useState(false);const [showJA,setShowJA]=useState(false);const [showChoicesJA,setShowChoicesJA]=useState(false);const [showKP,setShowKP]=useState(false);const [sessionResults,setSessionResults]=useState([]);
-  useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setSessionResults([]);}}}, [singleQId]);
+  const [filterTopic,setFilterTopic]=useState("All");const [srMode,setSrMode]=useState(initialMode||"due");const [queue,setQueue]=useState(null);const [qIdx,setQIdx]=useState(0);const [selected,setSelected]=useState(null);const [confirmed,setConfirmed]=useState(false);const [revealed,setRevealed]=useState(false);const [showJA,setShowJA]=useState(false);const [showChoicesJA,setShowChoicesJA]=useState(false);const [showKP,setShowKP]=useState(false);const [editingKP,setEditingKP]=useState(false);const [sessionResults,setSessionResults]=useState([]);
+  useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}}}, [singleQId]);
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   const getPool=()=>{let p=questions.filter(q=>filterTopic==="All"||q.topic===filterTopic);if(srMode==="due")p=p.filter(isDueToday);return p;};
-  function startSession(){const pool=getPool();if(!pool.length)return;setQueue([...pool].sort((a,b)=>daysUntil(a)-daysUntil(b)));setQIdx(0);setSelected(null);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setSessionResults([]);}
-  function handleChoice(idx){if(selected!==null)return;setSelected(idx);const q=queue[qIdx];const correct=idx===q.correctIndex;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
-  function next(){if(qIdx+1>=queue.length){setQueue(null);if(singleQId)clearSingleQ();return;}setQIdx(i=>i+1);setSelected(null);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);}
+  function startSession(){const pool=getPool();if(!pool.length)return;setQueue([...pool].sort((a,b)=>daysUntil(a)-daysUntil(b)));setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
+  function handleChoice(idx){if(confirmed)return;setSelected(idx);}function confirmAnswer(){if(selected===null||confirmed)return;setConfirmed(true);const q=queue[qIdx];const correct=selected===q.correctIndex;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
+  function next(){if(qIdx+1>=queue.length){setQueue(null);if(singleQId)clearSingleQ();return;}setQIdx(i=>i+1);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);}
   function handleBack(){setQueue(null);if(singleQId)clearSingleQ();}
 
   if(!queue){
@@ -375,7 +375,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   }
 
   const q=queue[qIdx];const answered=selected!==null;const labels=["A","B","C","D","E"];
-  const choiceState=idx=>{if(!answered)return"default";if(idx===q.correctIndex&&idx===selected)return"correct";if(idx===selected&&idx!==q.correctIndex)return"wrong";if(idx===q.correctIndex)return"reveal-correct";return"default";};
+  const choiceState=idx=>{if(!confirmed)return selected===idx?"selected":"default";if(idx===q.correctIndex&&idx===selected)return"correct";if(idx===selected&&idx!==q.correctIndex)return"wrong";if(idx===q.correctIndex)return"reveal-correct";return"default";};
   const lastResult=sessionResults[sessionResults.length-1];
   const relatedQs=(q.relatedIds||[]).map(id=>questions.find(x=>x.id===id)).filter(Boolean);
   return(<div>
@@ -384,10 +384,32 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
     <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
     {q.choices.some((_,i)=>(q.choicesJA||[])[i]?.trim())&&<div style={{marginBottom:6}}><button onClick={()=>setShowChoicesJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showChoicesJA?<Ic.eyeOff/>:<Ic.eye/>} 選択肢の日本語訳</button></div>}
     <div style={{marginBottom:10}}>{q.choices.filter(c=>c.trim()).map((choice,idx)=>{const jaText=(q.choicesJA||[])[idx];return(<button key={idx} style={S.choiceBtn(choiceState(idx))} onClick={()=>handleChoice(idx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[idx]}.</span><span style={{lineHeight:1.5}}>{choice}</span></div>{showChoicesJA&&jaText&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{jaText}</div>}</div>{choiceState(idx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(idx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(idx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>);})}</div>
-    {answered&&<div>
+    {answered&&!confirmed&&<div style={{marginBottom:10}}>
+      <button onClick={confirmAnswer} style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,fontWeight:"bold",letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        ✅ Confirm Answer
+      </button>
+    </div>}
+    {confirmed&&<div>
       {lastResult&&<div style={{...S.card,borderColor:lastResult.correct?"rgba(74,173,139,0.4)":"rgba(224,90,90,0.3)",background:lastResult.correct?"rgba(74,173,139,0.06)":"rgba(224,90,90,0.06)",marginBottom:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:22}}>{lastResult.correct?"✓":"✗"}</span><div><div style={{fontSize:13,color:lastResult.correct?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>{lastResult.correct?"正解！":"不正解"}</div><div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{lastResult.srInterval}日後</strong></div></div></div>}
       <div style={{...S.card,marginBottom:8}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>EXPLANATION</div><div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>{q.explanationJA&&<div style={{marginTop:10}}><button onClick={()=>setRevealed(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{revealed?<Ic.eyeOff/>:<Ic.eye/>} 日本語解説</button>{revealed&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.explanationJA}</div>}</div>}</div>
-      {q.keyPoints&&<div style={{marginBottom:10}}><button onClick={()=>setShowKP(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}><Ic.flag/> 覚えるべきポイント</button>{showKP&&<div style={{marginTop:8,padding:"12px",background:"rgba(196,160,80,0.06)",borderRadius:4,border:"1px solid rgba(196,160,80,0.25)",fontSize:13,color:"#d4c08a",lineHeight:1.7}}>📌 {q.keyPoints}</div>}</div>}
+      <div style={{marginBottom:10,background:"rgba(196,160,80,0.05)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:5,padding:"10px 12px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{fontSize:11,color:"#c4a050",display:"flex",alignItems:"center",gap:5}}><Ic.flag/> 📌 覚えるべきポイント</div>
+          <button onClick={()=>setEditingKP(v=>!v)} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11,borderColor:"rgba(196,160,80,0.3)"}}>
+            {editingKP?"✓ 保存":"✏ 編集"}
+          </button>
+        </div>
+        {editingKP
+          ? <textarea
+              value={q.keyPoints||""}
+              onChange={e=>{const updated={...q,keyPoints:e.target.value};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));}}
+              style={{...S.textarea,minHeight:90,fontSize:13,marginBottom:0,borderColor:"rgba(196,160,80,0.35)"}}
+              placeholder="覚えるべきポイントを入力..."/>
+          : <div style={{fontSize:13,color:q.keyPoints?"#d4c08a":"#4a5a6a",lineHeight:1.7,whiteSpace:"pre-wrap",minHeight:32}}>
+              {q.keyPoints||<span style={{fontStyle:"italic"}}>まだ入力されていません。「✏ 編集」から追加できます。</span>}
+            </div>
+        }
+      </div>
       {relatedQs.length>0&&<div style={{...S.card,borderColor:"rgba(155,143,212,0.3)",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題</div>{relatedQs.map(rq=>(<div key={rq.id} style={{marginBottom:6,padding:"8px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{display:"flex",gap:6,marginBottom:4}}><span style={S.tag("#9b8fd4")}>{rq.topic.split(" ").slice(0,2).join(" ")}</span></div><div style={{fontSize:12,color:"#a0b0c0",lineHeight:1.5}}>{rq.questionEN.slice(0,100)}…</div></div>))}</div>}
       <SavedChats
         chats={q.savedChats||[]}
@@ -869,6 +891,7 @@ function QuickImportModal({open, onClose, onImport}) {
   const [error, setError] = useState(null);
   const [useAI, setUseAI] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [editQ, setEditQ] = useState(false);
 
   const AI_PROMPT = (text) => `You are parsing a CFA exam question from raw copied text. Extract and return ONLY valid JSON (no markdown fences, no explanation).
 
@@ -951,7 +974,7 @@ Rules:
   function handleImport() {
     if (!parsed) return;
     onImport(parsed);
-    setRawText(""); setParsed(null); setError(null); onClose();
+    setRawText(""); setParsed(null); setError(null); setEditQ(false); onClose();
   }
 
   function handleClose() {
@@ -1017,10 +1040,22 @@ Rules:
           </div>
 
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em",marginBottom:6}}>問題文</div>
-            <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",border:"1px solid rgba(196,160,80,0.2)"}}>
-              <QuestionContent text={parsed.questionEN}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.1em"}}>問題文</div>
+              <button onClick={()=>setEditQ(v=>!v)} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11,borderColor:"rgba(196,160,80,0.3)"}}>
+                {editQ?"✓ 確定":"✏ 編集"}
+              </button>
             </div>
+            {editQ
+              ? <textarea
+                  value={parsed.questionEN}
+                  onChange={e=>setParsed(p=>({...p,questionEN:e.target.value}))}
+                  style={{...S.textarea,minHeight:150,fontSize:12,marginBottom:0}}
+                  placeholder="タブ区切りで表を入力できます"/>
+              : <div style={{background:"rgba(255,255,255,0.04)",borderRadius:4,padding:"10px 12px",border:"1px solid rgba(196,160,80,0.2)"}}>
+                  <QuestionContent text={parsed.questionEN}/>
+                </div>
+            }
           </div>
 
           <div style={{marginBottom:12}}>
@@ -1044,7 +1079,7 @@ Rules:
           )}
 
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setParsed(null)} style={{...S.btn("ghost"),flex:1}}>← やり直す</button>
+            <button onClick={()=>{setParsed(null);setEditQ(false);}} style={{...S.btn("ghost"),flex:1}}>← やり直す</button>
             <button onClick={handleImport} style={{...S.btn("primary"),flex:2}}>この内容で登録画面へ →</button>
           </div>
         </>)}
