@@ -735,6 +735,268 @@ function RichTextEditor({value, onChange}) {
   );
 }
 
+
+// ── InlineTableEditor ─────────────────────────────────────────────────────────
+// Converts questionEN (tab-separated format) ↔ visual grid editor
+function tabTextToGrid(text) {
+  // Reuse parseTabTable logic to build editable grid
+  const lines = text.split(/\r?\n/);
+  const isTabLine = l => l.includes('\t');
+  const firstTabIdx = lines.findIndex(isTabLine);
+  if (firstTabIdx === -1) return null;
+
+  let questionText = '';
+  let headers = [];
+  if (firstTabIdx > 0) {
+    const prevLine = lines[firstTabIdx - 1];
+    if (/[　＀-￯]/.test(prevLine) || /\S+\s{2,}\S/.test(prevLine)) {
+      headers = prevLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
+      questionText = lines.slice(0, firstTabIdx - 1).join('\n').trim();
+    } else {
+      questionText = lines.slice(0, firstTabIdx).join('\n').trim();
+    }
+  }
+
+  const tableLines = lines.slice(firstTabIdx);
+  const rows = tableLines.map(l => {
+    if (!isTabLine(l)) return { type: 'section', text: l.trim() };
+    return { type: 'data', cells: l.split('\t').map(c => c.trim()) };
+  }).filter(r => r.type === 'data' || r.text);
+
+  // Normalize all data rows to same column count
+  const dataRows = rows.filter(r => r.type === 'data');
+  const maxCols = Math.max(...dataRows.map(r => r.cells.length), headers.length > 0 ? headers.length + 1 : 0);
+  rows.forEach(r => {
+    if (r.type === 'data') {
+      while (r.cells.length < maxCols) r.cells.push('');
+    }
+  });
+
+  return { questionText, headers: headers.length > 0 ? ['', ...headers] : [], rows, maxCols };
+}
+
+function gridToTabText(questionText, headers, rows) {
+  const parts = [];
+  if (questionText.trim()) parts.push(questionText.trim());
+  // Headers line (skip first empty label cell, join rest with spaces)
+  if (headers.length > 1) {
+    parts.push(headers.slice(1).join('  '));
+  }
+  rows.forEach(r => {
+    if (r.type === 'section') {
+      if (r.text.trim()) parts.push(r.text);
+    } else {
+      parts.push(r.cells.join('\t'));
+    }
+  });
+  return parts.join('\n');
+}
+
+function InlineTableEditor({ value, onChange }) {
+  const hasTable = value.includes('\t');
+  const [mode, setMode] = useState(() => hasTable ? 'visual' : 'text');
+
+  // Grid state derived from text
+  const [grid, setGrid] = useState(() => {
+    if (!hasTable) return null;
+    return tabTextToGrid(value) || null;
+  });
+
+  // Sync mode when value changes externally (e.g. AI import)
+  useEffect(() => {
+    if (value.includes('\t') && mode === 'text') {
+      const g = tabTextToGrid(value);
+      if (g) { setGrid(g); setMode('visual'); }
+    }
+  }, [value]);
+
+  function switchToVisual() {
+    const g = tabTextToGrid(value);
+    if (g) { setGrid(g); setMode('visual'); }
+    else {
+      // No table yet — create blank 3x4
+      setGrid({
+        questionText: value,
+        headers: ['', '列1', '列2', '列3'],
+        rows: [
+          { type:'data', cells:['行1','','',''] },
+          { type:'data', cells:['行2','','',''] },
+          { type:'data', cells:['行3','','',''] },
+        ],
+        maxCols: 4,
+      });
+      setMode('visual');
+    }
+  }
+
+  function switchToText() {
+    if (grid) {
+      onChange(gridToTabText(grid.questionText, grid.headers, grid.rows));
+    }
+    setMode('text');
+  }
+
+  function updateGrid(next) {
+    setGrid(next);
+    onChange(gridToTabText(next.questionText, next.headers, next.rows));
+  }
+
+  function setQText(v) { updateGrid({...grid, questionText: v}); }
+  function setHeader(ci, v) {
+    const h = [...grid.headers]; h[ci] = v;
+    updateGrid({...grid, headers: h});
+  }
+  function setCell(ri, ci, v) {
+    const rows = grid.rows.map((r,i) => i===ri ? {...r, cells: r.cells.map((c,j)=>j===ci?v:c)} : r);
+    updateGrid({...grid, rows});
+  }
+  function setSectionText(ri, v) {
+    const rows = grid.rows.map((r,i) => i===ri ? {...r, text: v} : r);
+    updateGrid({...grid, rows});
+  }
+  function addDataRow() {
+    const cols = grid.headers.length || grid.maxCols || 3;
+    updateGrid({...grid, rows:[...grid.rows, {type:'data', cells:Array(cols).fill('')}]});
+  }
+  function addSectionRow(ri) {
+    const rows = [...grid.rows];
+    rows.splice(ri+1, 0, {type:'section', text:''});
+    updateGrid({...grid, rows});
+  }
+  function addCol() {
+    updateGrid({
+      ...grid,
+      headers: [...grid.headers, ''],
+      rows: grid.rows.map(r => r.type==='data' ? {...r, cells:[...r.cells,'']} : r),
+      maxCols: (grid.maxCols||0)+1,
+    });
+  }
+  function removeRow(ri) {
+    if (grid.rows.filter(r=>r.type==='data').length <= 1 && grid.rows[ri].type==='data') return;
+    updateGrid({...grid, rows: grid.rows.filter((_,i)=>i!==ri)});
+  }
+  function removeCol(ci) {
+    if ((grid.headers.length||0) <= 2) return;
+    updateGrid({
+      ...grid,
+      headers: grid.headers.filter((_,i)=>i!==ci),
+      rows: grid.rows.map(r => r.type==='data' ? {...r, cells:r.cells.filter((_,i)=>i!==ci)} : r),
+      maxCols: (grid.maxCols||1)-1,
+    });
+  }
+
+  const cellBase = {
+    border:'1px solid rgba(196,160,80,0.2)', background:'rgba(255,255,255,0.04)',
+    color:'#e8e0d0', fontFamily:'Georgia', fontSize:12, outline:'none',
+    boxSizing:'border-box', width:'100%', padding:'4px 6px',
+  };
+  const btnSm = { padding:'2px 6px', borderRadius:3, border:'1px solid rgba(196,160,80,0.3)',
+    background:'transparent', color:'#7a8a9a', cursor:'pointer', fontSize:10 };
+
+  if (mode === 'text') {
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+          <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
+          <button onClick={switchToVisual} style={{...S.btn('ghost'),padding:'3px 10px',fontSize:11,borderColor:'rgba(100,200,160,0.4)',color:'#4aad8b'}}>
+            🗂 表を編集する
+          </button>
+        </div>
+        <textarea value={value} onChange={e=>onChange(e.target.value)}
+          style={{...S.textarea,minHeight:100}}
+          placeholder={"Enter the question text in English...\n\n表がある場合：タブ区切りでそのままペーストすると自動で表として表示されます"}/>
+      </div>
+    );
+  }
+
+  // Visual mode
+  const nCols = grid.headers.length || (grid.rows.find(r=>r.type==='data')?.cells.length) || 3;
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
+        <button onClick={switchToText} style={{...S.btn('ghost'),padding:'3px 10px',fontSize:11}}>
+          ✏ テキスト編集に戻る
+        </button>
+      </div>
+
+      {/* Question text above table */}
+      <textarea value={grid.questionText} onChange={e=>setQText(e.target.value)}
+        style={{...S.textarea,minHeight:60,marginBottom:8,fontSize:13}}
+        placeholder="表の上に入れる問題文（任意）"/>
+
+      {/* Table grid */}
+      <div style={{background:'rgba(196,160,80,0.04)',border:'1px solid rgba(196,160,80,0.2)',borderRadius:4,padding:10,marginBottom:8}}>
+        <div style={{overflowX:'auto'}}>
+          <table style={{borderCollapse:'collapse',width:'100%'}}>
+            {/* Header row */}
+            {grid.headers.length > 0 && (
+              <thead>
+                <tr>
+                  {grid.headers.map((h,ci)=>(
+                    <th key={ci} style={{padding:'2px 3px',position:'relative',minWidth:70}}>
+                      <input value={h} onChange={e=>setHeader(ci,e.target.value)}
+                        style={{...cellBase,background:'rgba(196,160,80,0.12)',color:'#c4a050',fontWeight:'bold',textAlign:'center'}}
+                        placeholder={ci===0?'':` 列${ci}`}/>
+                      {ci > 1 && (
+                        <button onClick={()=>removeCol(ci)} style={{position:'absolute',top:-5,right:-4,width:14,height:14,borderRadius:'50%',border:'none',background:'#c0392b',color:'#fff',fontSize:9,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                      )}
+                    </th>
+                  ))}
+                  <th style={{width:22}}/>
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {grid.rows.map((row,ri)=>{
+                if(row.type==='section') return (
+                  <tr key={ri}>
+                    <td colSpan={nCols} style={{padding:'2px 3px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:4}}>
+                        <input value={row.text} onChange={e=>setSectionText(ri,e.target.value)}
+                          style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',flex:1}}
+                          placeholder="セクション見出し"/>
+                        <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
+                      </div>
+                    </td>
+                    <td/>
+                  </tr>
+                );
+                return (
+                  <tr key={ri}>
+                    {row.cells.map((cell,ci)=>(
+                      <td key={ci} style={{padding:'2px 3px'}}>
+                        <input value={cell} onChange={e=>setCell(ri,ci,e.target.value)}
+                          style={{...cellBase,color:ci===0?'#c4a050':'#e8e0d0',background:ci===0?'rgba(196,160,80,0.06)':'rgba(255,255,255,0.04)',textAlign:ci===0?'left':'right'}}/>
+                      </td>
+                    ))}
+                    <td style={{width:22,paddingLeft:3}}>
+                      <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Row/Col controls */}
+        <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
+          <button onClick={addDataRow} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 行を追加</button>
+          <button onClick={()=>addSectionRow(grid.rows.length-1)} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ セクション見出し</button>
+          <button onClick={addCol} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 列を追加</button>
+        </div>
+      </div>
+
+      {/* Live preview */}
+      <div style={{fontSize:10,color:'#5a6a7a',marginBottom:4,letterSpacing:'0.1em'}}>プレビュー</div>
+      <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(196,160,80,0.15)',borderRadius:4,padding:'10px 12px',marginBottom:12}}>
+        <QuestionContent text={value}/>
+      </div>
+    </div>
+  );
+}
+
 // ── Question Parser ───────────────────────────────────────────────────────────
 function parseQuestion(raw) {
   const lines = raw.split(/\r?\n/);
@@ -1111,8 +1373,7 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
     <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={parsed=>{applyParsed(parsed);}}/>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div>{!editQ&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
-    <label style={S.label}>問題文（英語） *</label>
-    <textarea value={form.questionEN} onChange={e=>set("questionEN",e.target.value)} style={{...S.textarea,minHeight:100}} placeholder={"Enter the question text in English...\n\n表がある場合：タブ区切りでそのままペーストすると自動で表として表示されます"}/>
+    <InlineTableEditor value={form.questionEN} onChange={v=>set("questionEN",v)}/>
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
     {form.choices.map((choice,idx)=>{const jaVal=(form.choicesJA||[])[idx]||"";const isTrans=!!translating[`cJA_${idx}`];return(<div key={idx} style={{marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4}}><button onClick={()=>set("correctIndex",idx)} style={{minWidth:32,height:36,borderRadius:4,border:`2px solid ${form.correctIndex===idx?"#4aad8b":"rgba(196,160,80,0.3)"}`,background:form.correctIndex===idx?"rgba(74,173,139,0.2)":"transparent",color:form.correctIndex===idx?"#4aad8b":"#5a6a7a",cursor:"pointer",fontSize:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center"}}>{labels[idx]}</button><input value={choice} onChange={e=>setChoice(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1}} placeholder={`Choice ${labels[idx]}`}/>{form.choices.length>2&&<button onClick={()=>removeChoice(idx)} style={{...S.btn("danger"),padding:"6px 8px",minWidth:32,height:36}}><Ic.trash/></button>}</div><div style={{display:"flex",gap:6,alignItems:"center",paddingLeft:38}}><input value={jaVal} onChange={e=>setChoiceJA(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1,fontSize:13,borderColor:jaVal?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.15)"}} placeholder={`選択肢 ${labels[idx]} の日本語訳`}/>{choice.trim()&&<TranslateBtn loading={isTrans} onClick={()=>translateChoiceJA(idx)}/>}</div></div>);})}
     {form.choices.length<5&&<button onClick={addChoice} style={{...S.btn("ghost"),fontSize:12,marginBottom:14}}>+ 選択肢を追加</button>}
