@@ -308,6 +308,9 @@ function Dashboard({questions,notes,setPage,setPracticeMode}){
     {total>0&&<div style={{...S.card,marginBottom:14}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:10,display:"flex",alignItems:"center",gap:6}}><Ic.cal/>今後7日間の復習予定</div><div style={{display:"flex",gap:6,alignItems:"flex-end",height:56}}>{forecast.map((f,i)=>(<div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{fontSize:10,color:"#5a6a7a"}}>{f.count>0?f.count:""}</div><div style={{width:"100%",borderRadius:"3px 3px 0 0",height:f.count>0?`${Math.max((f.count/maxF)*38,5)}px`:"2px",background:f.isToday?(f.count>0?"#4aad8b":"rgba(74,173,139,0.2)"):f.count>0?"#c4a05070":"rgba(255,255,255,0.06)"}}/><div style={{fontSize:9,color:f.isToday?"#c4a050":"#5a6a7a"}}>{f.label}</div></div>))}</div></div>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}><button style={{...S.btn("primary"),padding:"13px",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontSize:13}} onClick={()=>{setPracticeMode("all");setPage("practice");}}><Ic.play/>全問演習</button><button style={{...S.btn("ghost"),padding:"13px",display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontSize:13}} onClick={()=>setPage("add")}><Ic.plus/>問題を登録</button></div>
     {total>0&&<div><div style={S.sectionTitle}>分野別 登録数</div>{Object.entries(topicCounts).sort((a,b)=>b[1]-a[1]).map(([topic,count])=>(<div key={topic} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}><div style={{flex:1,fontSize:12,color:"#b0c0cc"}}>{topic}</div><div style={{fontSize:12,color:"#c4a050",minWidth:24,textAlign:"right"}}>{count}</div><div style={{width:80,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}><div style={{width:`${(count/total)*100}%`,height:"100%",background:"#c4a050",borderRadius:2}}/></div></div>))}</div>}
+    <button onClick={()=>setPage("history")} style={{...S.btn("ghost"),width:"100%",padding:"9px 14px",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:14,borderColor:"rgba(196,160,80,0.25)"}}>
+      📊 解答履歴を見る
+    </button>
     {total===0&&<div style={{...S.card,textAlign:"center",padding:40}}><div style={{fontSize:32,marginBottom:12}}>📖</div><div style={{color:"#7a8a9a",fontSize:14,lineHeight:1.7}}>まずは復習したい問題を登録しましょう。</div><button style={{...S.btn("primary"),marginTop:16}} onClick={()=>setPage("add")}>最初の問題を登録する</button></div>}
   </div>);
 }
@@ -355,7 +358,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}}}, [singleQId]);
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   const getPool=()=>{let p=questions.filter(q=>filterTopic==="All"||q.topic===filterTopic);if(srMode==="due")p=p.filter(isDueToday);return p;};
-  function startSession(){const pool=getPool();if(!pool.length)return;setQueue([...pool].sort((a,b)=>daysUntil(a)-daysUntil(b)));setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
+  function startSession(){const pool=getPool();if(!pool.length)return;const sorted=[...pool].sort((a,b)=>daysUntil(a)-daysUntil(b));const shuffled=sorted.sort(()=>Math.random()-0.5);setQueue(shuffled);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
   function handleChoice(idx){if(confirmed)return;setSelected(idx);}function confirmAnswer(){if(selected===null||confirmed)return;setConfirmed(true);const q=queue[qIdx];const correct=selected===q.correctIndex;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
   function next(){if(qIdx+1>=queue.length){setQueue(null);if(singleQId)clearSingleQ();return;}setQIdx(i=>i+1);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);}
   function handleBack(){setQueue(null);if(singleQId)clearSingleQ();}
@@ -1350,6 +1353,114 @@ Rules:
   );
 }
 
+
+// ── HistoryPage ───────────────────────────────────────────────────────────────
+function HistoryPage({questions, setPage, startSingleQ}) {
+  const [sortBy, setSortBy] = useState("date");   // date | wrong | topic
+  const [filterTopic, setFilterTopic] = useState("All");
+
+  const attempted = questions.filter(q => q.attemptCount > 0);
+  const topics = ["All", ...CFA_TOPICS.filter(t => attempted.some(q => q.topic === t))];
+
+  const filtered = attempted
+    .filter(q => filterTopic === "All" || q.topic === filterTopic)
+    .sort((a, b) => {
+      if (sortBy === "date")  return (b.lastAttempted||"").localeCompare(a.lastAttempted||"");
+      if (sortBy === "wrong") {
+        const ra = a.attemptCount ? (a.wrongCount / a.attemptCount) : 0;
+        const rb = b.attemptCount ? (b.wrongCount / b.attemptCount) : 0;
+        return rb - ra;
+      }
+      if (sortBy === "topic") return a.topic.localeCompare(b.topic);
+      return 0;
+    });
+
+  const totalAttempts = attempted.reduce((s, q) => s + q.attemptCount, 0);
+  const totalCorrect  = attempted.reduce((s, q) => s + (q.attemptCount - q.wrongCount), 0);
+  const overallAcc    = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>setPage("home")} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
+        <div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>📊 解答履歴</div>
+      </div>
+
+      {/* Summary card */}
+      {attempted.length > 0 && (
+        <div style={{...S.card,borderColor:"rgba(196,160,80,0.3)",marginBottom:14,display:"flex",gap:20,flexWrap:"wrap"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:28,fontWeight:"bold",color:"#4aad8b"}}>{attempted.length}</div>
+            <div style={{fontSize:11,color:"#5a7a6a"}}>挑戦済問題数</div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:28,fontWeight:"bold",color:"#c4a050"}}>{totalAttempts}</div>
+            <div style={{fontSize:11,color:"#7a6a4a"}}>総解答回数</div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:28,fontWeight:"bold",color:overallAcc>=70?"#4aad8b":"#e05a5a"}}>{overallAcc}%</div>
+            <div style={{fontSize:11,color:"#5a6a7a"}}>総合正答率</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters + Sort */}
+      <div style={{marginBottom:10}}>
+        <select value={filterTopic} onChange={e=>setFilterTopic(e.target.value)} style={{...S.input,marginBottom:8,fontSize:12}}>
+          {topics.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t==="All"?"全分野":t}</option>)}
+        </select>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {[["date","最近解いた順"],["wrong","間違い率順"],["topic","分野順"]].map(([val,label])=>(
+            <button key={val} onClick={()=>setSortBy(val)}
+              style={{...S.btn(sortBy===val?"primary":"ghost"),padding:"4px 11px",fontSize:11}}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 && (
+        <div style={{...S.card,textAlign:"center",padding:40,color:"#5a6a7a"}}>
+          {attempted.length === 0 ? "まだ問題を解いていません" : "該当する問題がありません"}
+        </div>
+      )}
+
+      {filtered.map(q => {
+        const acc = q.attemptCount > 0 ? Math.round(((q.attemptCount - q.wrongCount) / q.attemptCount) * 100) : 0;
+        const accColor = acc >= 80 ? "#4aad8b" : acc >= 50 ? "#c4a050" : "#e05a5a";
+        const lastDate = q.lastAttempted ? new Date(q.lastAttempted).toLocaleDateString("ja-JP") : "—";
+        return (
+          <div key={q.id} style={{...S.card,marginBottom:8,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
+                  <span style={S.tag()}>{q.topic.split(" ").slice(0,2).join(" ")}</span>
+                  <span style={S.tag(q.difficulty==="Hard"?"#e05a5a":q.difficulty==="Medium"?"#d4a34a":"#4aad8b")}>{q.difficulty}</span>
+                </div>
+                <div style={{fontSize:13,color:"#b0c0cc",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:6}}>
+                  {q.questionEN.replace(/	/g," ").slice(0,120)}{q.questionEN.length>120?"…":""}
+                </div>
+                <div style={{display:"flex",gap:14,fontSize:11,color:"#5a6a7a"}}>
+                  <span>解答 <strong style={{color:"#c4a050"}}>{q.attemptCount}回</strong></span>
+                  <span>正解 <strong style={{color:"#4aad8b"}}>{q.attemptCount - q.wrongCount}回</strong></span>
+                  <span>不正解 <strong style={{color:"#e05a5a"}}>{q.wrongCount}回</strong></span>
+                  <span>最終 <strong style={{color:"#7a9ab0"}}>{lastDate}</strong></span>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+                <div style={{fontSize:20,fontWeight:"bold",color:accColor}}>{acc}%</div>
+                <div style={{fontSize:9,color:"#5a6a7a"}}>正答率</div>
+                <button onClick={()=>startSingleQ(q.id)}
+                  style={{...S.btn("ghost"),padding:"4px 8px",fontSize:10,marginTop:4}}>
+                  解く
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── AddQuestion ───────────────────────────────────────────────────────────────
 function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
   const [form,setForm]=useState(()=>editQ?{...editQ,relatedIds:editQ.relatedIds||[]}:{...BLANK_Q,id:uid()});
@@ -1450,7 +1561,7 @@ export default function App(){
   if(!dataLoaded) return(<div style={{...S.app,alignItems:"center",justifyContent:"center"}}><div style={{color:"#c4a050",letterSpacing:"0.2em",fontSize:12}}>データを読み込み中...</div></div>);
 
   const navItems=[{key:"home",label:"Home",icon:Ic.home},{key:"list",label:"一覧",icon:Ic.list},{key:"add",label:"登録",icon:Ic.plus},{key:"practice",label:"演習",icon:Ic.play},{key:"notes",label:"ノート",icon:Ic.note}];
-  const showNav=page!=="add"&&page!=="note-edit"&&page!=="note-view";
+  const showNav=page!=="add"&&page!=="note-edit"&&page!=="note-view"&&page!=="history";
 
   return(<div style={S.app}>
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
@@ -1474,6 +1585,7 @@ export default function App(){
       {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
       {page==="note-view"&&<NoteViewer note={viewNote} questions={questions} setPage={setPage} setEditNote={setEditNote}/>}
+      {page==="history"&&<HistoryPage questions={questions} setPage={setPage} startSingleQ={startSingleQ}/>}
     </div>
     {showNav&&<div style={S.nav}>{navItems.map(item=>(<button key={item.key} style={S.navBtn(page===item.key||(item.key==="notes"&&(page==="note-edit"||page==="note-view")))} onClick={()=>{setEditQ(null);setSingleQId(null);setPage(item.key);}}><item.icon/>{item.label}{item.key==="practice"&&dueCount>0&&<span style={{position:"absolute",top:0,right:4,background:"#4aad8b",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>{dueCount}</span>}</button>))}</div>}
   </div>);
