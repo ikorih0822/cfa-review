@@ -358,8 +358,8 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}}}, [singleQId]);
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   const getPool=()=>{let p=questions.filter(q=>filterTopic==="All"||q.topic===filterTopic);if(srMode==="due")p=p.filter(isDueToday);return p;};
-  function startSession(){const pool=getPool();if(!pool.length)return;const sorted=[...pool].sort((a,b)=>daysUntil(a)-daysUntil(b));const shuffled=sorted.sort(()=>Math.random()-0.5);setQueue(shuffled);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
-  function handleChoice(idx){if(confirmed)return;setSelected(idx);}function confirmAnswer(){if(selected===null||confirmed)return;setConfirmed(true);const q=queue[qIdx];const correct=selected===q.correctIndex;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
+  function startSession(){const pool=getPool();if(!pool.length)return;let sorted=[...pool];if(srMode==="short"){sorted.sort((a,b)=>a.questionEN.length-b.questionEN.length);}else{sorted.sort((a,b)=>daysUntil(a)-daysUntil(b));sorted.sort(()=>Math.random()-0.5);}const withOrder=sorted.map(q=>{const n=q.choices.filter(c=>c.trim()).length;const order=[...Array(n).keys()].sort(()=>Math.random()-0.5);return{...q,_choiceOrder:order};});setQueue(withOrder);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
+  function handleChoice(idx){if(confirmed)return;setSelected(idx);}function confirmAnswer(){if(selected===null||confirmed)return;setConfirmed(true);const q=queue[qIdx];const order=q._choiceOrder||q.choices.map((_,i)=>i);const correctDIdx=order.indexOf(q.correctIndex);const correct=selected===correctDIdx;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
   function next(){if(qIdx+1>=queue.length){setQueue(null);if(singleQId)clearSingleQ();return;}setQIdx(i=>i+1);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);}
   function handleBack(){setQueue(null);if(singleQId)clearSingleQ();}
 
@@ -368,17 +368,20 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
     return(<div>
       {doneCount>0&&<div style={{...S.card,borderColor:"rgba(74,173,139,0.3)",marginBottom:16}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:10}}>SESSION RESULT</div><div style={{display:"flex",gap:20,alignItems:"flex-end",marginBottom:14}}><div><div style={{fontSize:32,fontWeight:"bold",color:"#4aad8b"}}>{correctCount}<span style={{fontSize:18,color:"#3a8a6a"}}>/{doneCount}</span></div><div style={{fontSize:11,color:"#5a7a6a"}}>正解数</div></div><div><div style={{fontSize:28,fontWeight:"bold",color:"#c4a050"}}>{Math.round((correctCount/doneCount)*100)}%</div><div style={{fontSize:11,color:"#7a6a4a"}}>正答率</div></div></div><div style={{maxHeight:180,overflowY:"auto"}}>{sessionResults.map((r,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,fontSize:12}}><span style={{color:r.correct?"#4aad8b":"#e05a5a",minWidth:16}}>{r.correct?"✓":"✗"}</span><span style={{flex:1,color:"#8a9ab0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.questionEN.slice(0,55)}…</span><span style={{color:"#5a7a8a",fontSize:11,minWidth:52,textAlign:"right"}}>次回 {r.srInterval}日後</span></div>))}</div></div>}
       <div style={S.sectionTitle}>演習設定</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>{[["due","🔁 復習期限の問題","SM-2で今日が期限の問題"],["all","📚 全問から演習","全問題からランダム"]].map(([mode,title,desc])=>(<button key={mode} onClick={()=>setSrMode(mode)} style={{background:srMode===mode?"rgba(196,160,80,0.12)":"rgba(255,255,255,0.02)",border:`1px solid ${srMode===mode?"rgba(196,160,80,0.5)":"rgba(196,160,80,0.15)"}`,borderRadius:6,padding:"12px 10px",cursor:"pointer",textAlign:"left"}}><div style={{fontSize:13,color:srMode===mode?"#c4a050":"#8a9ab0",marginBottom:4}}>{title}</div><div style={{fontSize:10,color:"#5a6a7a"}}>{desc}</div></button>))}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>{[["due","🔁 復習期限","SM-2期限の問題"],["all","📚 全問演習","全問シャッフル"],["short","📝 短問優先","文章短め順"]].map(([mode,title,desc])=>(<button key={mode} onClick={()=>setSrMode(mode)} style={{background:srMode===mode?"rgba(196,160,80,0.12)":"rgba(255,255,255,0.02)",border:`1px solid ${srMode===mode?"rgba(196,160,80,0.5)":"rgba(196,160,80,0.15)"}`,borderRadius:6,padding:"10px 8px",cursor:"pointer",textAlign:"left"}}><div style={{fontSize:12,color:srMode===mode?"#c4a050":"#8a9ab0",marginBottom:3}}>{title}</div><div style={{fontSize:10,color:"#5a6a7a"}}>{desc}</div></button>))}</div>
       <label style={S.label}>分野を選択</label>
       <select value={filterTopic} onChange={e=>setFilterTopic(e.target.value)} style={S.input}>{topics.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t==="All"?"全分野":t}</option>)}</select>
-      <div style={{fontSize:12,color:pool.length===0?"#e05a5a":"#4aad8b",marginBottom:14}}>{srMode==="due"?`今日の復習: ${pool.length} 問`:`対象: ${pool.length} 問`}</div>
+      <div style={{fontSize:12,color:pool.length===0?"#e05a5a":"#4aad8b",marginBottom:14}}>{srMode==="due"?`今日の復習: ${pool.length} 問`:srMode==="short"?`短問優先: ${pool.length} 問 (文章短め順)`:` 対象: ${pool.length} 問`}</div>
       {pool.length===0&&srMode==="due"&&<div style={{...S.card,textAlign:"center",padding:20,borderColor:"rgba(74,173,139,0.3)",marginBottom:14}}><div style={{fontSize:24,marginBottom:8}}>🎉</div><div style={{color:"#4aad8b",fontSize:14}}>今日の復習は完了しています！</div></div>}
       <button disabled={pool.length===0} onClick={startSession} style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,opacity:pool.length===0?0.4:1}}>演習を開始する →</button>
     </div>);
   }
 
   const q=queue[qIdx];const answered=selected!==null;const labels=["A","B","C","D","E"];
-  const choiceState=idx=>{if(!confirmed)return selected===idx?"selected":"default";if(idx===q.correctIndex&&idx===selected)return"correct";if(idx===selected&&idx!==q.correctIndex)return"wrong";if(idx===q.correctIndex)return"reveal-correct";return"default";};
+  const order=q._choiceOrder||q.choices.map((_,i)=>i);
+  const displayChoices=order.map(i=>({text:q.choices[i],ja:(q.choicesJA||[])[i]||"",origIdx:i}));
+  const correctDisplayIdx=order.indexOf(q.correctIndex);
+  const choiceState=dIdx=>{if(!confirmed)return selected===dIdx?"selected":"default";if(dIdx===correctDisplayIdx&&dIdx===selected)return"correct";if(dIdx===selected&&dIdx!==correctDisplayIdx)return"wrong";if(dIdx===correctDisplayIdx)return"reveal-correct";return"default";};
   const lastResult=sessionResults[sessionResults.length-1];
   const relatedQs=(q.relatedIds||[]).map(id=>questions.find(x=>x.id===id)).filter(Boolean);
   return(<div>
@@ -386,7 +389,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}><span style={S.tag()}>{q.topic}</span><span style={S.tag(diffColor(q.difficulty))}>{q.difficulty}</span><SRBadge q={q}/></div>
     <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
     {q.choices.some((_,i)=>(q.choicesJA||[])[i]?.trim())&&<div style={{marginBottom:6}}><button onClick={()=>setShowChoicesJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showChoicesJA?<Ic.eyeOff/>:<Ic.eye/>} 選択肢の日本語訳</button></div>}
-    <div style={{marginBottom:10}}>{q.choices.filter(c=>c.trim()).map((choice,idx)=>{const jaText=(q.choicesJA||[])[idx];return(<button key={idx} style={S.choiceBtn(choiceState(idx))} onClick={()=>handleChoice(idx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[idx]}.</span><span style={{lineHeight:1.5}}>{choice}</span></div>{showChoicesJA&&jaText&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{jaText}</div>}</div>{choiceState(idx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(idx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(idx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>);})}</div>
+    <div style={{marginBottom:10}}>{displayChoices.map((ch,dIdx)=>(<button key={dIdx} style={S.choiceBtn(choiceState(dIdx))} onClick={()=>handleChoice(dIdx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span><span style={{lineHeight:1.5}}>{ch.text}</span></div>{showChoicesJA&&ch.ja&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{ch.ja}</div>}</div>{choiceState(dIdx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(dIdx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>))}</div>
     {answered&&!confirmed&&<div style={{marginBottom:10}}>
       <button onClick={confirmAnswer} style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,fontWeight:"bold",letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         ✅ Confirm Answer
@@ -1354,10 +1357,168 @@ Rules:
 }
 
 
+
+// ── SimilarQuestionModal ──────────────────────────────────────────────────────
+function SimilarQuestionModal({sourceQ, onClose, onSave}) {
+  const [phase, setPhase] = useState("generating"); // generating | practice | done
+  const [genQ, setGenQ] = useState(null);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [shuffleOrder, setShuffleOrder] = useState(null);
+  const labels = ["A","B","C","D","E"];
+
+  const PROMPT = `You are a CFA exam question writer. Create ONE new practice question similar to the one below, testing the same concept but with different numbers/companies/scenario. Return ONLY valid JSON (no markdown, no explanation).
+
+Original question:
+${sourceQ.questionEN}
+Correct answer: ${sourceQ.choices[sourceQ.correctIndex]}
+Explanation: ${sourceQ.explanationEN}
+
+Return this exact JSON:
+{
+  "questionEN": "...",
+  "choices": ["choice text A", "choice text B", "choice text C"],
+  "correctIndex": 0,
+  "explanationEN": "...",
+  "keyPoints": "..."
+}
+Rules:
+- choices: array of 3 answer texts (no A./B./C. prefix)
+- correctIndex: 0-based index of correct answer
+- keyPoints: 3-4 bullet points in Japanese starting with •
+- If a table is needed: put column headers on one line separated by 2+ spaces, then each data row with tab-separated values`;
+
+  useEffect(() => {
+    const apiKey = getApiKey();
+    if (!apiKey) { setError("APIキーが未設定です。設定から入力してください。"); setPhase("error"); return; }
+    askClaude(apiKey, [{role:"user", content: PROMPT}])
+      .then(reply => {
+        const cleaned = reply.replace(/^```[a-z]*\n?/i,"").replace(/\n?```$/,"").trim()
+          .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g," ").replace(/\t/g,"\\t").replace(/\r/g,"\\r");
+        const data = JSON.parse(cleaned);
+        if (!data.questionEN || !data.choices || data.choices.length < 2) throw new Error("生成データが不正です");
+        const n = data.choices.length;
+        const order = [...Array(n).keys()].sort(() => Math.random()-0.5);
+        setShuffleOrder(order);
+        setGenQ(data);
+        setPhase("practice");
+      })
+      .catch(e => { setError("生成エラー: " + e.message); setPhase("error"); });
+  }, []);
+
+  function handleSave() {
+    if (!genQ) return;
+    onSave({
+      ...BLANK_Q,
+      id: uid(),
+      topic: sourceQ.topic,
+      difficulty: sourceQ.difficulty,
+      questionEN: genQ.questionEN,
+      choices: genQ.choices,
+      correctIndex: genQ.correctIndex,
+      explanationEN: genQ.explanationEN,
+      keyPoints: genQ.keyPoints || "",
+      relatedIds: [sourceQ.id],
+      createdAt: new Date().toISOString(),
+    });
+    onClose();
+  }
+
+  const order = shuffleOrder || (genQ ? genQ.choices.map((_,i)=>i) : []);
+  const correctDIdx = genQ ? order.indexOf(genQ.correctIndex) : -1;
+  const choiceState = dIdx => {
+    if (!confirmed) return selected===dIdx ? "selected" : "default";
+    if (dIdx===correctDIdx && dIdx===selected) return "correct";
+    if (dIdx===selected && dIdx!==correctDIdx) return "wrong";
+    if (dIdx===correctDIdx) return "reveal-correct";
+    return "default";
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"16px",overflowY:"auto"}}>
+      <div style={{...S.card,maxWidth:600,width:"100%",marginTop:16,borderColor:"rgba(155,143,212,0.4)"}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:13,color:"#b0a0e0",letterSpacing:"0.1em"}}>✨ AI類題</div>
+          <button onClick={onClose} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:12}}>閉じる</button>
+        </div>
+
+        {phase==="generating" && (
+          <div style={{textAlign:"center",padding:"30px 0"}}>
+            <div style={{fontSize:24,marginBottom:12,animation:"spin 1.5s linear infinite",display:"inline-block"}}>⟳</div>
+            <div style={{color:"#b0a0e0",fontSize:13}}>Claude が類題を生成中...</div>
+          </div>
+        )}
+
+        {phase==="error" && (
+          <div style={{background:"rgba(224,90,90,0.1)",border:"1px solid rgba(224,90,90,0.3)",borderRadius:4,padding:14,color:"#e08a8a",fontSize:13}}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        {phase==="practice" && genQ && (<>
+          <div style={{fontSize:10,color:"#b0a0e0",letterSpacing:"0.15em",marginBottom:6}}>AI生成問題 — {sourceQ.topic}</div>
+
+          {/* Question */}
+          <div style={{...S.card,borderColor:"rgba(155,143,212,0.3)",marginBottom:10}}>
+            <QuestionContent text={genQ.questionEN}/>
+          </div>
+
+          {/* Choices */}
+          <div style={{marginBottom:10}}>
+            {order.map((origIdx, dIdx) => (
+              <button key={dIdx} style={S.choiceBtn(choiceState(dIdx))} onClick={()=>{if(!confirmed)setSelected(dIdx);}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                    <span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span>
+                    <span style={{lineHeight:1.5}}>{genQ.choices[origIdx]}</span>
+                  </div>
+                </div>
+                {choiceState(dIdx)==="correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+                {choiceState(dIdx)==="wrong"&&<span style={{marginLeft:"auto"}}><Ic.xmark/></span>}
+                {choiceState(dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Confirm or result */}
+          {!confirmed && selected!==null && (
+            <button onClick={()=>setConfirmed(true)} style={{...S.btn("primary"),width:"100%",padding:13,marginBottom:10,fontWeight:"bold"}}>
+              ✅ Confirm Answer
+            </button>
+          )}
+
+          {confirmed && (<>
+            <div style={{...S.card,borderColor:selected===correctDIdx?"rgba(74,173,139,0.4)":"rgba(224,90,90,0.3)",background:selected===correctDIdx?"rgba(74,173,139,0.06)":"rgba(224,90,90,0.06)",marginBottom:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>{selected===correctDIdx?"✓":"✗"}</span>
+              <div style={{fontSize:13,color:selected===correctDIdx?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>{selected===correctDIdx?"正解！":"不正解"}</div>
+            </div>
+            <div style={{...S.card,marginBottom:10}}>
+              <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:6}}>EXPLANATION</div>
+              <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{genQ.explanationEN}</div>
+            </div>
+            {genQ.keyPoints && (
+              <div style={{background:"rgba(196,160,80,0.05)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:5,padding:"10px 12px",marginBottom:12}}>
+                <div style={{fontSize:11,color:"#c4a050",marginBottom:4}}>📌 覚えるべきポイント</div>
+                <div style={{fontSize:13,color:"#d4c08a",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{genQ.keyPoints}</div>
+              </div>
+            )}
+            <button onClick={handleSave} style={{...S.btn("primary"),width:"100%",padding:13,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              💾 この問題を登録して保存する
+            </button>
+          </>)}
+        </>)}
+      </div>
+    </div>
+  );
+}
+
 // ── HistoryPage ───────────────────────────────────────────────────────────────
-function HistoryPage({questions, setPage, startSingleQ}) {
+function HistoryPage({questions, setPage, startSingleQ, addQ}) {
   const [sortBy, setSortBy] = useState("date");   // date | wrong | topic
   const [filterTopic, setFilterTopic] = useState("All");
+  const [similarSrc, setSimilarSrc] = useState(null);
 
   const attempted = questions.filter(q => q.attemptCount > 0);
   const topics = ["All", ...CFA_TOPICS.filter(t => attempted.some(q => q.topic === t))];
@@ -1452,12 +1613,25 @@ function HistoryPage({questions, setPage, startSingleQ}) {
                   style={{...S.btn("ghost"),padding:"4px 8px",fontSize:10,marginTop:4}}>
                   解く
                 </button>
+                {q.attemptCount>=2 && acc<70 && (
+                  <button onClick={()=>setSimilarSrc(q)}
+                    style={{...S.btn("ghost"),padding:"4px 8px",fontSize:10,marginTop:4,borderColor:"rgba(155,143,212,0.5)",color:"#b0a0e0"}}>
+                    類題
+                  </button>
+                )}
               </div>
             </div>
           </div>
         );
       })}
     </div>
+    {similarSrc && (
+      <SimilarQuestionModal
+        sourceQ={similarSrc}
+        onClose={()=>setSimilarSrc(null)}
+        onSave={q=>{addQ(q);setSimilarSrc(null);}}
+      />
+    )}
   );
 }
 
@@ -1585,7 +1759,7 @@ export default function App(){
       {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
       {page==="note-view"&&<NoteViewer note={viewNote} questions={questions} setPage={setPage} setEditNote={setEditNote}/>}
-      {page==="history"&&<HistoryPage questions={questions} setPage={setPage} startSingleQ={startSingleQ}/>}
+      {page==="history"&&<HistoryPage questions={questions} setPage={setPage} startSingleQ={startSingleQ} addQ={addQ}/>}
     </div>
     {showNav&&<div style={S.nav}>{navItems.map(item=>(<button key={item.key} style={S.navBtn(page===item.key||(item.key==="notes"&&(page==="note-edit"||page==="note-view")))} onClick={()=>{setEditQ(null);setSingleQId(null);setPage(item.key);}}><item.icon/>{item.label}{item.key==="practice"&&dueCount>0&&<span style={{position:"absolute",top:0,right:4,background:"#4aad8b",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>{dueCount}</span>}</button>))}</div>}
   </div>);
