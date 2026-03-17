@@ -1541,6 +1541,7 @@ function HistoryPage({questions, setPage, startSingleQ, addQ}) {
   const overallAcc    = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
 
   return (
+    <>
     <div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
         <button onClick={()=>setPage("home")} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
@@ -1632,6 +1633,7 @@ function HistoryPage({questions, setPage, startSingleQ, addQ}) {
         onSave={q=>{addQ(q);setSimilarSrc(null);}}
       />
     )}
+    </>
   );
 }
 
