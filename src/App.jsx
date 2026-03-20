@@ -1008,17 +1008,22 @@ function parseQuestion(raw) {
   const lines = raw.split(/\r?\n/);
   const labels = ["A","B","C","D","E"];
 
-  // Find the line index where choices start
-  // A choice line: starts with "A." / "B." etc, or "Incorrect answer:" / "Correct answer:" / "Correct Answer:"
-  const choiceStartRe = /^([A-E])\./i;
-  const incorrectRe = /^incorrect answer[:\s]*/i;
-  const correctRe = /^correct answer[:\s]*/i;
-  const feedbackRe = /^(general )?feedback\s*$/i;
+  // Patterns — more specific ones must be checked BEFORE generic ones
+  const choiceStartRe      = /^([A-E])\./i;
+  // Per-choice feedback (new format): "Correct Answer Feedback:" / "Incorrect Answer Feedback:"
+  const correctFeedbackRe  = /^correct answer feedback[:\s]*/i;
+  const incorrectFeedbackRe= /^incorrect answer feedback[:\s]*/i;
+  // Section markers (standalone): "Correct answer:" / "Incorrect answer:"
+  const correctMarkerRe    = /^correct answer\s*:?\s*$/i;
+  const incorrectMarkerRe  = /^incorrect answer\s*:?\s*$/i;
+  // Generic "Correct Answer: B. text" (inline)
+  const correctInlineRe    = /^correct answer[:\s]+[A-E]\./i;
+  const feedbackRe         = /^(general )?feedback\s*$/i;
 
   let choiceStartIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].trim();
-    if (choiceStartRe.test(l) || incorrectRe.test(l) || correctRe.test(l)) {
+    if (choiceStartRe.test(l) || correctMarkerRe.test(l) || incorrectMarkerRe.test(l) || correctInlineRe.test(l)) {
       choiceStartIdx = i; break;
     }
   }
@@ -1027,65 +1032,79 @@ function parseQuestion(raw) {
   const questionLines = choiceStartIdx > 0 ? lines.slice(0, choiceStartIdx) : [];
   const questionEN = questionLines.map(l => l.trim()).filter(l => l).join("\n").trim();
 
-  // Parse choices and find correct answer
-  const choiceMap = {}; // {A: text, B: text, ...}
+  const choiceMap = {};
   let correctLetter = null;
   let explanationLines = [];
   let inFeedback = false;
-  let pendingCorrect = false; // next choice line is the correct answer
+  let pendingCorrect = false;
   let pendingIncorrect = false;
+  let lastChoiceLetter = null; // track last seen choice for per-choice feedback
 
   const afterChoices = choiceStartIdx >= 0 ? lines.slice(choiceStartIdx) : lines;
 
   for (let i = 0; i < afterChoices.length; i++) {
-    const raw_l = afterChoices[i];
-    const l = raw_l.trim();
-
+    const l = afterChoices[i].trim();
     if (!l) continue;
 
+    // General Feedback block (old format)
     if (feedbackRe.test(l)) { inFeedback = true; continue; }
     if (inFeedback) { explanationLines.push(l); continue; }
 
-    // "Correct Answer:" or "Correct answer:" marker
-    if (correctRe.test(l)) {
-      // The correct answer text may be on same line or next line
-      const rest = l.replace(correctRe, "").trim();
-      const m = rest.match(/^([A-E])\./i);
+    // "Correct Answer Feedback: ..." → grab as explanation for the correct answer
+    if (correctFeedbackRe.test(l)) {
+      const text = l.replace(correctFeedbackRe, "").trim();
+      if (text) explanationLines.push(text);
+      continue;
+    }
+
+    // "Incorrect Answer Feedback: ..." → skip (wrong choice explanation)
+    if (incorrectFeedbackRe.test(l)) continue;
+
+    // "Correct Answer: B. text" (inline, old format)
+    if (correctInlineRe.test(l)) {
+      const rest = l.replace(/^correct answer[:\s]*/i, "").trim();
+      const m = rest.match(/^([A-E])\.(.*)/i);
       if (m) {
         correctLetter = m[1].toUpperCase();
-        const choiceText = rest.replace(/^[A-E]\./i, "").trim();
+        const choiceText = m[2].trim();
         if (choiceText) choiceMap[correctLetter] = choiceText;
-      } else {
-        pendingCorrect = true;
       }
       continue;
     }
 
-    if (incorrectRe.test(l)) {
-      pendingIncorrect = true;
-      continue;
-    }
+    // "Correct answer:" standalone marker → next choice is correct
+    if (correctMarkerRe.test(l)) { pendingCorrect = true; continue; }
+
+    // "Incorrect answer:" standalone marker → next choice is incorrect
+    if (incorrectMarkerRe.test(l)) { pendingIncorrect = true; continue; }
 
     // "Not Selected" - skip
     if (/^not selected$/i.test(l)) continue;
 
-    // Choice line: A. text
+    // Choice line: "A. text"
     const cm = l.match(/^([A-E])\.(.*)/i);
     if (cm) {
       const letter = cm[1].toUpperCase();
       const text = cm[2].trim();
-      choiceMap[letter] = text;
+      if (text) choiceMap[letter] = text;
+      lastChoiceLetter = letter;
       if (pendingCorrect) { correctLetter = letter; pendingCorrect = false; }
       if (pendingIncorrect) { pendingIncorrect = false; }
       continue;
     }
 
-    // If pending correct/incorrect but line doesn't match A. format
+    // Continuation text for a choice (e.g. multi-line choice)
+    if (lastChoiceLetter && choiceMap[lastChoiceLetter] && !pendingCorrect && !pendingIncorrect) {
+      // Only append if it doesn't look like a new section
+      if (!/^[A-Z][A-Z\s]+:/.test(l)) {
+        choiceMap[lastChoiceLetter] += " " + l;
+      }
+    }
+
     if (pendingCorrect) { pendingCorrect = false; }
     if (pendingIncorrect) { pendingIncorrect = false; }
   }
 
-  // Build ordered choices array
   const orderedLetters = labels.filter(l => choiceMap[l]);
   const choices = orderedLetters.map(l => choiceMap[l]);
   const correctIndex = correctLetter ? orderedLetters.indexOf(correctLetter) : 0;
