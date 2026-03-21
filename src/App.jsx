@@ -355,9 +355,33 @@ function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
 // ── Practice ──────────────────────────────────────────────────────────────────
 
 // ── VignettePanel ─────────────────────────────────────────────────────────────
+// Split vignette text into segments: plain paragraphs and tab-separated table blocks
+function splitVignetteSegments(text) {
+  const lines = text.split(/\r?\n/);
+  const segments = [];
+  let buf = [];
+  let inTable = false;
+
+  const flush = () => {
+    if (!buf.length) return;
+    const content = buf.join('\n').trim();
+    if (content) segments.push({ type: inTable ? 'table' : 'text', content });
+    buf = [];
+  };
+
+  for (const line of lines) {
+    const hasTab = line.includes('\t');
+    if (hasTab !== inTable) { flush(); inTable = hasTab; }
+    buf.push(line);
+  }
+  flush();
+  return segments;
+}
+
 function VignettePanel({text}) {
   const [open, setOpen] = useState(false);
   if (!text) return null;
+  const segments = splitVignetteSegments(text);
   return (
     <div style={{marginBottom:10,border:"1px solid rgba(100,140,200,0.3)",borderRadius:5,overflow:"hidden"}}>
       <button
@@ -372,9 +396,17 @@ function VignettePanel({text}) {
       </button>
       {open && (
         <div style={{padding:"12px 14px",background:"rgba(100,130,160,0.06)",
-          fontSize:13,color:"#98b0c8",lineHeight:1.8,whiteSpace:"pre-wrap",
-          maxHeight:320,overflowY:"auto"}}>
-          {text}
+          maxHeight:400,overflowY:"auto"}}>
+          {segments.map((seg, i) =>
+            seg.type === 'table'
+              ? <div key={i} style={{marginBottom:8}}>
+                  <QuestionContent text={seg.content}/>
+                </div>
+              : <div key={i} style={{fontSize:13,color:"#98b0c8",lineHeight:1.8,
+                  whiteSpace:"pre-wrap",marginBottom:8}}>
+                  {seg.content}
+                </div>
+          )}
         </div>
       )}
     </div>
