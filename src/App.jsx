@@ -2075,16 +2075,12 @@ function HistoryPage({questions, setPage, startSingleQ, addQ}) {
 }
 
 // ── AddQuestion ───────────────────────────────────────────────────────────────
-function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs,setPendingVigQs}){
+function AddQuestion({editQ,setEditQ,addQ,addQs,updateQ,questions,setPage}){
   const [form,setForm]=useState(()=>editQ?{...editQ,relatedIds:editQ.relatedIds||[]}:{...BLANK_Q,id:uid()});
   const [translating,setTranslating]=useState({});const [transError,setTransError]=useState(null);const [showRelated,setShowRelated]=useState(false);
   const [showImport,setShowImport]=useState(false);
-  // Load form from pending vignette queue when idx changes or queue becomes ready
-  useEffect(()=>{
-    if(pendingVigQs && pendingVigQs.qs && pendingVigQs.qs[pendingVigQs.idx]){
-      setForm({...pendingVigQs.qs[pendingVigQs.idx]});
-    }
-  }, [pendingVigQs?.idx, pendingVigQs?.ready]);
+  // Local vignette queue — avoids stale closure issues with App-level state
+  const [vigQueue,setVigQueue]=useState(null); // {qs:[], idx:0}
   function applyParsed(parsed,vt=""){setForm(f=>({...f,questionEN:parsed.questionEN,choices:parsed.choices.length>=2?parsed.choices:["","",""],choicesJA:Array(parsed.choices.length).fill(""),correctIndex:parsed.correctIndex,explanationEN:parsed.explanationEN||"",vignetteText:vt||""}));}
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const setChoice=(idx,val)=>setForm(f=>{const c=[...f.choices];c[idx]=val;return{...f,choices:c};});
@@ -2097,23 +2093,22 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
   function submit(){
     if(!form.questionEN.trim())return alert("問題文（英語）を入力してください");
     if(form.choices.filter(c=>c.trim()).length<2)return alert("選択肢を2つ以上入力してください");
-    if(pendingVigQs){
-      const updatedQs=[...pendingVigQs.qs];
-      updatedQs[pendingVigQs.idx]={...form};
-      const nextIdx=pendingVigQs.idx+1;
+    if(vigQueue){
+      // Store current edits back into queue
+      const updatedQs=[...vigQueue.qs];
+      updatedQs[vigQueue.idx]={...form};
+      const nextIdx=vigQueue.idx+1;
       if(nextIdx<updatedQs.length){
-        addQ(form);
-        setPendingVigQs({qs:updatedQs, idx:nextIdx, ready:false});
-        // useEffect will load next form
+        // Advance to next question — directly set form (no useEffect)
+        const nextQ=updatedQs[nextIdx];
+        setVigQueue({qs:updatedQs, idx:nextIdx});
+        setForm({...nextQ});
       } else {
-        // Last: save all sibling relatedIds and finish
+        // All edited — batch save all at once with relatedIds
         const allIds=updatedQs.map(q=>q.id);
-        addQ({...form, relatedIds:allIds.filter(id=>id!==form.id)});
-        // Update already-saved siblings with relatedIds (they're already in Firestore, update them)
-        updatedQs.slice(0,nextIdx-1).forEach(q=>{
-          updateQ({...q, relatedIds:allIds.filter(id=>id!==q.id)});
-        });
-        setPendingVigQs(null);
+        const withRelated=updatedQs.map(q=>({...q, relatedIds:allIds.filter(id=>id!==q.id)}));
+        addQs(withRelated);
+        setVigQueue(null);
         setEditQ(null);
         setPage("list");
       }
@@ -2139,32 +2134,35 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
           explanationEN:sq.explanationEN||"",
           vignetteText:vignette.vignetteText
         }));
-        setPendingVigQs({qs, idx:0, ready:true});
+        // Load Q1 directly and store queue locally — no App-level state needed
+        setVigQueue({qs, idx:0});
+        setForm({...qs[0]});
+        setShowImport(false);
       } else if(parsed){
         applyParsed(parsed);
       }
     }} />
     {/* ── Vignette sequential header ── */}
-    {pendingVigQs && (
+    {vigQueue && (
       <div style={{background:"rgba(155,143,212,0.12)",border:"1px solid rgba(155,143,212,0.35)",borderRadius:5,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{fontSize:12,color:"#b0a0e0",display:"flex",alignItems:"center",gap:6}}>
           📖 ビニエット一括登録
           <span style={{background:"rgba(155,143,212,0.3)",borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:"bold"}}>
-            {pendingVigQs.idx+1} / {pendingVigQs.qs.length}
+            {vigQueue.idx+1} / {vigQueue.qs.length}
           </span>
         </div>
         <div style={{display:"flex",gap:4}}>
-          {pendingVigQs.idx>0&&<button onClick={()=>{const prev=pendingVigQs.idx-1;setPendingVigQs(v=>({...v,idx:prev}));setForm({...pendingVigQs.qs[prev]});}} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11}}>← 前</button>}
-          <button onClick={()=>{setPendingVigQs(null);setEditQ(null);setPage("list");}} style={{...S.btn("danger"),padding:"3px 9px",fontSize:11}}>中止</button>
+          {vigQueue.idx>0&&<button onClick={()=>{const prev=vigQueue.idx-1;const prevQ=vigQueue.qs[prev];setVigQueue(vq=>({...vq,idx:prev}));setForm({...prevQ});}} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11}}>← 前</button>}
+          <button onClick={()=>{setVigQueue(null);setEditQ(null);setPage("list");}} style={{...S.btn("danger"),padding:"3px 9px",fontSize:11}}>中止</button>
         </div>
       </div>
     )}
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-      <button onClick={()=>{setPendingVigQs(null);setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
+      <button onClick={()=>{setVigQueue(null);setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
       <div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>
-        {pendingVigQs ? `小問 ${pendingVigQs.idx+1} を編集` : editQ?"問題を編集":"新しい問題を登録"}
+        {vigQueue ? `小問 ${vigQueue.idx+1} を編集` : editQ?"問題を編集":"新しい問題を登録"}
       </div>
-      {!editQ&&!pendingVigQs&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}
+      {!editQ&&!vigQueue&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
     <div style={{marginBottom:8}}>
@@ -2205,10 +2203,10 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
     <textarea value={form.keyPoints} onChange={e=>set("keyPoints",e.target.value)} style={{...S.textarea,borderColor:"rgba(196,160,80,0.4)"}} placeholder="覚えるべきポイント（右上のボタンでAI自動生成も可）..."/>
     <div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div><button onClick={()=>setShowRelated(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showRelated?"閉じる":"問題を紐づける"}</button></div>{linkedQs.length>0&&<div style={{fontSize:11,color:"#9b8fd4",marginBottom:8}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),marginRight:4,marginBottom:4,display:"inline-block"}}>{q.questionEN.slice(0,25)}…</span>)}</div>}{showRelated&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}</div>
     <button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>
-      {pendingVigQs
-        ? pendingVigQs.idx+1 < pendingVigQs.qs.length
-          ? `保存して次へ → (${pendingVigQs.idx+2}/${pendingVigQs.qs.length}問目)`
-          : `保存して完了 ✓ (全${pendingVigQs.qs.length}問)`
+      {vigQueue
+        ? vigQueue.idx+1 < vigQueue.qs.length
+          ? `保存して次へ → (${vigQueue.idx+2}/${vigQueue.qs.length}問目)`
+          : `保存して完了 ✓ (全${vigQueue.qs.length}問)`
         : editQ?"変更を保存する":"問題を登録する"}
     </button>
   </div>);
@@ -2221,7 +2219,6 @@ export default function App(){
   const [notes,setNotes]=useState([]);
   const [page,setPage]=useState("home");
   const [editQ,setEditQ]=useState(null);
-  const [pendingVigQs,setPendingVigQs]=useState(null); // {qs:[],idx:0} for sequential vignette editing
   const [editNote,setEditNote]=useState(null);
   const [viewNote,setViewNote]=useState(null);
   const [practiceMode,setPracticeMode]=useState("due");
@@ -2245,6 +2242,7 @@ export default function App(){
   const persistN=useCallback(async(ns,uid)=>{setNotes(ns);setSaving(true);await fbSaveNotes(uid,ns);setSaving(false);},[]);
 
   const addQ=q=>persistQ([...questions,q],user.uid);
+  const addQs=qs=>persistQ([...questions,...qs],user.uid); // batch add multiple questions
   const updateQ=q=>persistQ(questions.map(x=>x.id===q.id?q:x),user.uid);
   const deleteQ=id=>persistQ(questions.filter(q=>q.id!==id),user.uid);
   const addNote=n=>persistN([...notes,n],user.uid);
@@ -2286,7 +2284,7 @@ export default function App(){
     <div style={S.content}>
       {page==="home"&&<Dashboard questions={questions} notes={notes} setPage={setPage} setPracticeMode={setPracticeMode}/>}
       {page==="list"&&<QuestionList questions={questions} setPage={setPage} setEditQ={setEditQ} deleteQ={deleteQ} startSingleQ={startSingleQ}/>}
-      {page==="add"&&<AddQuestion editQ={editQ} setEditQ={setEditQ} addQ={addQ} updateQ={updateQ} questions={questions} setPage={setPage} pendingVigQs={pendingVigQs} setPendingVigQs={setPendingVigQs}/>}
+      {page==="add"&&<AddQuestion editQ={editQ} setEditQ={setEditQ} addQ={addQ} addQs={addQs} updateQ={updateQ} questions={questions} setPage={setPage}/>}
       {page==="practice"&&<Practice questions={questions} updateQ={updateQ} initialMode={practiceMode} singleQId={singleQId} clearSingleQ={()=>setSingleQId(null)} onOpenSettings={()=>setShowSettings(true)}/>}
       {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
