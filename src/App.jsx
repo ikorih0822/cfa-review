@@ -319,7 +319,7 @@ function Dashboard({questions,notes,setPage,setPracticeMode}){
 function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
   const [filterTopic,setFilterTopic]=useState("All");const [filterDiff,setFilterDiff]=useState("All");const [filterSR,setFilterSR]=useState("All");const [expandedId,setExpandedId]=useState(null);const [sortBy,setSortBy]=useState("sr");
   const dueCount=questions.filter(isDueToday).length;
-  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return 0; // preserve insertion order - reversal applied below if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
+  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return 0; if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
   const filteredOrdered = sortBy==="date" ? [...filtered].reverse() : filtered;
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   return(<div>
