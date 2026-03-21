@@ -110,7 +110,7 @@ const Ic = {
 };
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const uid = () => Math.random().toString(36).slice(2,10);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 const diffColor = d => d==="Hard"?"#e05a5a":d==="Medium"?"#d4a34a":"#4aad8b";
 const S = {
   app:{fontFamily:"'Georgia','Times New Roman',serif",background:"#0d1b2e",minHeight:"100vh",color:"#e8e0d0",display:"flex",flexDirection:"column",maxWidth:680,margin:"0 auto",position:"relative"},
@@ -319,7 +319,8 @@ function Dashboard({questions,notes,setPage,setPracticeMode}){
 function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
   const [filterTopic,setFilterTopic]=useState("All");const [filterDiff,setFilterDiff]=useState("All");const [filterSR,setFilterSR]=useState("All");const [expandedId,setExpandedId]=useState(null);const [sortBy,setSortBy]=useState("sr");
   const dueCount=questions.filter(isDueToday).length;
-  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return (b.id||"").localeCompare(a.id||""); if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
+  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return 0; // preserve Firestore insertion order (newest first via reversal below if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
+  const filteredOrdered = sortBy==="date" ? [...filtered].reverse() : filtered;
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   return(<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -331,8 +332,8 @@ function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
   </div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>{["All","Easy","Medium","Hard"].map(d=>(<button key={d} onClick={()=>setFilterDiff(d)} style={{...S.btn(filterDiff===d?"primary":"ghost"),padding:"4px 10px",fontSize:11}}>{d==="All"?"全難易度":d}</button>))}</div>
     <select value={filterTopic} onChange={e=>setFilterTopic(e.target.value)} style={{...S.input,marginBottom:8,fontSize:12}}>{topics.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t==="All"?"全分野":t}</option>)}</select>
-    <div style={{fontSize:11,color:"#5a6a7a",marginBottom:10}}>{filtered.length} 問</div>
-    {filtered.map(q=>{
+    <div style={{fontSize:11,color:"#5a6a7a",marginBottom:10}}>{filteredOrdered.length} 問</div>
+    {filteredOrdered.map(q=>{
       const isOpen=expandedId===q.id;const acc=q.attemptCount>0?Math.round(((q.attemptCount-q.wrongCount)/q.attemptCount)*100):null;const rl=reviewLabel(q);
       return(<div key={q.id} style={{...S.card,borderColor:isDueToday(q)?"rgba(74,173,139,0.35)":"rgba(196,160,80,0.2)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
@@ -651,36 +652,85 @@ function parseTabTable(text) {
   return { questionText, headers, rows, maxCols };
 }
 
-function QuestionContent({text}) {
+function QuestionContent({text, compact=false}) {
   if (!text) return null;
   const parsed = parseTabTable(text);
   if (!parsed) {
     return <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap"}}>{text}</div>;
   }
   const { questionText, headers, rows, maxCols } = parsed;
-  const th = {padding:"5px 8px",background:"rgba(196,160,80,0.15)",border:"1px solid rgba(196,160,80,0.25)",color:"#c4a050",fontWeight:"bold",textAlign:"center",fontSize:11,whiteSpace:"nowrap"};
-  const td0 = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.15)",color:"#c4a050",background:"rgba(196,160,80,0.06)",fontSize:12,fontWeight:"bold",whiteSpace:"nowrap"};
-  const tdn = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#c8bfaf",fontSize:12,textAlign:"right",whiteSpace:"nowrap"};
-  const tsec = {padding:"5px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#a89060",fontSize:11,fontWeight:"bold",background:"rgba(196,160,80,0.04)",letterSpacing:"0.05em"};
+  const nCols = headers && headers.length > 0 ? headers.length + 1 : maxCols;
+  // Default col widths in px — user can drag to resize
+  const [colWidths, setColWidths] = useState(() => Array(nCols).fill(compact ? 90 : 120));
+  const dragging = useRef(null);
+
+  function onMouseDown(ci, e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = colWidths[ci];
+    dragging.current = { ci, startX, startW };
+    const onMove = ev => {
+      const delta = ev.clientX - dragging.current.startX;
+      setColWidths(ws => ws.map((w,i) => i===dragging.current.ci ? Math.max(40, dragging.current.startW+delta) : w));
+    };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+  // Touch support
+  function onTouchStart(ci, e) {
+    const startX = e.touches[0].clientX;
+    const startW = colWidths[ci];
+    const onMove = ev => {
+      const delta = ev.touches[0].clientX - startX;
+      setColWidths(ws => ws.map((w,i) => i===ci ? Math.max(40, startW+delta) : w));
+    };
+    const onEnd = () => { window.removeEventListener('touchmove', onMove); window.removeEventListener('touchend', onEnd); };
+    window.addEventListener('touchmove', onMove, {passive:true});
+    window.addEventListener('touchend', onEnd);
+  }
+
+  const thBase = {background:"rgba(196,160,80,0.15)",border:"1px solid rgba(196,160,80,0.25)",color:"#c4a050",fontWeight:"bold",textAlign:"center",fontSize:11,position:"relative",padding:"5px 16px 5px 8px",wordBreak:"break-word",whiteSpace:"normal"};
+  const td0 = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.15)",color:"#c4a050",background:"rgba(196,160,80,0.06)",fontSize:12,fontWeight:"bold",wordBreak:"break-word",whiteSpace:"normal",verticalAlign:"top"};
+  const tdn = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#c8bfaf",fontSize:12,textAlign:"right",wordBreak:"break-word",whiteSpace:"normal",verticalAlign:"top"};
+  const tsec = {padding:"5px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#a89060",fontSize:11,fontWeight:"bold",background:"rgba(196,160,80,0.04)",letterSpacing:"0.05em",wordBreak:"break-word"};
+  const resizer = (ci) => (
+    <span
+      onMouseDown={e=>onMouseDown(ci,e)}
+      onTouchStart={e=>onTouchStart(ci,e)}
+      style={{position:"absolute",right:0,top:0,bottom:0,width:8,cursor:"col-resize",
+        display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none",
+        background:"transparent"}}
+      title="ドラッグで列幅変更">
+      <span style={{width:2,height:"60%",background:"rgba(196,160,80,0.3)",borderRadius:1}}/>
+    </span>
+  );
+
   return (
     <div>
       {questionText && <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap",marginBottom:8}}>{questionText}</div>}
       <div style={{overflowX:"auto",marginTop:4}}>
-        <table style={{borderCollapse:"collapse",fontSize:12,minWidth:280}}>
+        <table style={{borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"max-content",maxWidth:"100%"}}>
           {headers && headers.length>0 && (
             <thead><tr>
-              <th style={th}></th>
-              {headers.map((h,i)=><th key={i} style={th}>{h}</th>)}
+              <th style={{...thBase,width:colWidths[0]}}>{resizer(0)}</th>
+              {headers.map((h,i)=>(
+                <th key={i} style={{...thBase,width:colWidths[i+1]}}>
+                  {h}{resizer(i+1)}
+                </th>
+              ))}
             </tr></thead>
           )}
           <tbody>
             {rows.map((row,ri)=>{
               if(row.type==='section') return(
-                <tr key={ri}><td colSpan={maxCols} style={tsec}>{row.text}</td></tr>
+                <tr key={ri}><td colSpan={nCols} style={tsec}>{row.text}</td></tr>
               );
               return(
                 <tr key={ri}>
-                  {row.cells.map((cell,ci)=><td key={ci} style={ci===0?td0:tdn}>{cell}</td>)}
+                  {row.cells.map((cell,ci)=>(
+                    <td key={ci} style={{...(ci===0?td0:tdn), width:colWidths[ci]||90}}>{cell}</td>
+                  ))}
                 </tr>
               );
             })}
@@ -859,7 +909,7 @@ function gridToTabText(questionText, headers, rows) {
   return parts.join('\n');
 }
 
-function InlineTableEditor({ value, onChange }) {
+function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=100, placeholderText=null, accentColor=null, textColor=null }) {
   const hasTable = value.includes('\t');
   const [mode, setMode] = useState(() => hasTable ? 'visual' : 'text');
 
@@ -963,15 +1013,20 @@ function InlineTableEditor({ value, onChange }) {
   if (mode === 'text') {
     return (
       <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+        {!hideLabelInside && <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
           <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
           <button onClick={switchToVisual} style={{...S.btn('ghost'),padding:'3px 10px',fontSize:11,borderColor:'rgba(100,200,160,0.4)',color:'#4aad8b'}}>
             🗂 表を編集する
           </button>
-        </div>
+        </div>}
+        {hideLabelInside && <div style={{display:'flex',justifyContent:'flex-end',marginBottom:5}}>
+          <button onClick={switchToVisual} style={{...S.btn('ghost'),padding:'3px 10px',fontSize:11,borderColor:accentColor||'rgba(100,200,160,0.4)',color:'#4aad8b'}}>
+            🗂 表を編集する
+          </button>
+        </div>}
         <textarea value={value} onChange={e=>onChange(e.target.value)}
-          style={{...S.textarea,minHeight:100}}
-          placeholder={"Enter the question text in English...\n\n表がある場合：タブ区切りでそのままペーストすると自動で表として表示されます"}/>
+          style={{...S.textarea, minHeight, ...(accentColor?{borderColor:accentColor}:{}), ...(textColor?{color:textColor}:{})}}
+          placeholder={placeholderText || "Enter the question text in English...\n\n表がある場合：タブ区切りでそのままペーストすると自動で表として表示されます"}/>
       </div>
     );
   }
@@ -1882,9 +1937,16 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
         <label style={{...S.label,marginBottom:0,color:"#6b9fd4"}}>📖 ビニエット本文（任意）</label>
         {form.vignetteText&&<span style={{fontSize:10,color:"#4a6a8a"}}>演習中に折りたたんで表示されます</span>}
       </div>
-      <textarea value={form.vignetteText||""} onChange={e=>set("vignetteText",e.target.value)}
-        style={{...S.textarea,minHeight:form.vignetteText?100:44,fontSize:12,borderColor:"rgba(100,140,200,0.3)",color:"#8aafcc"}}
-        placeholder="ビニエット（大問の文章）がある場合はここに貼り付け。単問の場合は空欄でOK。"/>
+      <InlineTableEditor
+        value={form.vignetteText||""}
+        onChange={v=>set("vignetteText",v)}
+        labelOverride="ビニエット本文（任意）"
+        hideLabelInside
+        minHeight={form.vignetteText?100:44}
+        placeholderText="ビニエット（大問の文章）がある場合はここに貼り付け。表はタブ区切りで自動認識されます。"
+        accentColor="rgba(100,140,200,0.4)"
+        textColor="#8aafcc"
+      />
     </div>
     <InlineTableEditor value={form.questionEN} onChange={v=>set("questionEN",v)}/>
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
