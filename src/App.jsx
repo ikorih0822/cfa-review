@@ -319,8 +319,20 @@ function Dashboard({questions,notes,setPage,setPracticeMode}){
 function QuestionList({questions,setPage,setEditQ,deleteQ,startSingleQ}){
   const [filterTopic,setFilterTopic]=useState("All");const [filterDiff,setFilterDiff]=useState("All");const [filterSR,setFilterSR]=useState("All");const [expandedId,setExpandedId]=useState(null);const [sortBy,setSortBy]=useState("sr");
   const dueCount=questions.filter(isDueToday).length;
-  const filtered=questions.filter(q=>(filterTopic==="All"||q.topic===filterTopic)&&(filterDiff==="All"||q.difficulty===filterDiff)&&(filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))).sort((a,b)=>{ if(sortBy==="date") return 0; if(isDueToday(a)&&!isDueToday(b))return -1; if(!isDueToday(a)&&isDueToday(b))return 1; if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview); return 0; });
-  const filteredOrdered = sortBy==="date" ? [...filtered].reverse() : filtered;
+  const filteredOrdered = (() => {
+    const base = questions.filter(q =>
+      (filterTopic==="All"||q.topic===filterTopic) &&
+      (filterDiff==="All"||q.difficulty===filterDiff) &&
+      (filterSR==="All"||(filterSR==="Due"&&isDueToday(q))||(filterSR==="Upcoming"&&!isDueToday(q)&&q.srNextReview))
+    );
+    if(sortBy==="date") return [...base].reverse(); // newest id = last added = highest index
+    return [...base].sort((a,b)=>{
+      if(isDueToday(a)&&!isDueToday(b))return -1;
+      if(!isDueToday(a)&&isDueToday(b))return 1;
+      if(a.srNextReview&&b.srNextReview)return a.srNextReview.localeCompare(b.srNextReview);
+      return 0;
+    });
+  })();
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   return(<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -414,6 +426,124 @@ function VignettePanel({text}) {
   );
 }
 
+// ── VignetteGroupPractice ─────────────────────────────────────────────────────
+// Shows all sub-questions with same vignetteText stacked vertically
+function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpenSettings}) {
+  const qs = questions.filter(q => q.vignetteText === vignetteText && q.choices.filter(c=>c.trim()).length >= 2);
+  const [answers, setAnswers] = useState(() => Array(qs.length).fill(null));   // null | {selected, confirmed}
+  const [results, setResults] = useState(() => Array(qs.length).fill(null));
+  const labels = ["A","B","C","D","E"];
+  const allConfirmed = answers.every(a => a?.confirmed);
+
+  function selectChoice(qi, dIdx) {
+    if(answers[qi]?.confirmed) return;
+    setAnswers(prev => prev.map((a,i) => i===qi ? {selected:dIdx, confirmed:false} : a));
+  }
+
+  function confirmAnswer(qi) {
+    const q = qs[qi];
+    const order = q._choiceOrder || q.choices.map((_,i)=>i);
+    const correctDIdx = order.indexOf(q.correctIndex);
+    const correct = answers[qi]?.selected === correctDIdx;
+    const sr = sm2Update(q, correct);
+    const updated = {...q, attemptCount:q.attemptCount+1, wrongCount:q.wrongCount+(correct?0:1),
+      lastAttempted:new Date().toISOString(), ...sr};
+    updateQ(updated);
+    setAnswers(prev => prev.map((a,i) => i===qi ? {...a, confirmed:true} : a));
+    setResults(prev => prev.map((r,i) => i===qi ? {correct, srInterval:sr.srInterval} : r));
+  }
+
+  const choiceState = (qi, dIdx) => {
+    const a = answers[qi];
+    const q = qs[qi];
+    const order = q._choiceOrder || q.choices.map((_,i)=>i);
+    const correctDIdx = order.indexOf(q.correctIndex);
+    if(!a?.confirmed) return a?.selected===dIdx ? "selected" : "default";
+    if(dIdx===correctDIdx && dIdx===a.selected) return "correct";
+    if(dIdx===a.selected && dIdx!==correctDIdx) return "wrong";
+    if(dIdx===correctDIdx) return "reveal-correct";
+    return "default";
+  };
+
+  return (
+    <div>
+      {/* Passage */}
+      <VignettePanel text={vignetteText}/>
+
+      {/* Progress */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:11,color:"#b0a0e0"}}>📖 ビニエット演習 · {qs.length}問</div>
+        <div style={{fontSize:11,color:"#5a6a7a"}}>{answers.filter(a=>a?.confirmed).length} / {qs.length} 解答済</div>
+      </div>
+
+      {/* All sub-questions stacked */}
+      {qs.map((q, qi) => {
+        const order = q._choiceOrder || q.choices.map((_,i)=>i);
+        const displayChoices = order.map(i => ({text:q.choices[i], origIdx:i}));
+        const a = answers[qi];
+        const r = results[qi];
+        return (
+          <div key={q.id} style={{...S.card, borderColor:"rgba(196,160,80,0.3)", marginBottom:16}}>
+            {/* Sub-question header */}
+            <div style={{fontSize:10,color:"#b0a0e0",letterSpacing:"0.15em",marginBottom:8}}>
+              小問 {qi+1}
+            </div>
+            <QuestionContent text={q.questionEN}/>
+
+            {/* Choices */}
+            <div style={{marginTop:10,marginBottom:8}}>
+              {displayChoices.map((ch,dIdx)=>(
+                <button key={dIdx} style={S.choiceBtn(choiceState(qi,dIdx))}
+                  onClick={()=>selectChoice(qi,dIdx)}>
+                  <div style={{flex:1,display:"flex",alignItems:"flex-start",gap:8}}>
+                    <span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span>
+                    <span style={{lineHeight:1.5}}>{ch.text}</span>
+                  </div>
+                  {choiceState(qi,dIdx)==="correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+                  {choiceState(qi,dIdx)==="wrong"&&<span style={{marginLeft:"auto"}}><Ic.xmark/></span>}
+                  {choiceState(qi,dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+                </button>
+              ))}
+            </div>
+
+            {/* Confirm button */}
+            {!a?.confirmed && a?.selected!=null && (
+              <button onClick={()=>confirmAnswer(qi)}
+                style={{...S.btn("primary"),width:"100%",padding:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                ✅ Confirm Answer
+              </button>
+            )}
+
+            {/* Result + Explanation */}
+            {a?.confirmed && (<>
+              <div style={{...S.card,borderColor:r?.correct?"rgba(74,173,139,0.4)":"rgba(224,90,90,0.3)",background:r?.correct?"rgba(74,173,139,0.06)":"rgba(224,90,90,0.06)",padding:"10px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                <span style={{fontSize:20}}>{r?.correct?"✓":"✗"}</span>
+                <div>
+                  <div style={{fontSize:13,color:r?.correct?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>{r?.correct?"正解！":"不正解"}</div>
+                  <div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{r?.srInterval}日後</strong></div>
+                </div>
+              </div>
+              <div style={{...S.card,padding:"10px 14px"}}>
+                <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:6}}>EXPLANATION</div>
+                <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>
+              </div>
+            </>)}
+          </div>
+        );
+      })}
+
+      {/* Done button */}
+      {allConfirmed && (
+        <button onClick={onDone}
+          style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,marginTop:8}}>
+          演習を終了する →
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSettings}){
   const [filterTopic,setFilterTopic]=useState("All");const [srMode,setSrMode]=useState(initialMode||"due");const [queue,setQueue]=useState(null);const [qIdx,setQIdx]=useState(0);const [selected,setSelected]=useState(null);const [confirmed,setConfirmed]=useState(false);const [revealed,setRevealed]=useState(false);const [showJA,setShowJA]=useState(false);const [showChoicesJA,setShowChoicesJA]=useState(false);const [showKP,setShowKP]=useState(false);const [editingKP,setEditingKP]=useState(false);const [sessionResults,setSessionResults]=useState([]);
   useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}}}, [singleQId]);
@@ -439,6 +569,26 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   }
 
   const q=queue[qIdx];const answered=selected!==null;const labels=["A","B","C","D","E"];
+
+  // Vignette group: if current q has vignetteText, show all siblings together
+  if(q.vignetteText){
+    return(
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button>
+          <div style={{flex:1,fontSize:12,color:"#b0a0e0"}}>📖 ビニエット演習</div>
+        </div>
+        <VignetteGroupPractice
+          questions={questions}
+          vignetteText={q.vignetteText}
+          updateQ={updateQ}
+          onOpenSettings={onOpenSettings}
+          onDone={()=>{setQueue(null);if(singleQId)clearSingleQ();}}
+        />
+      </div>
+    );
+  }
+
   const order=q._choiceOrder||q.choices.map((_,i)=>i);
   const displayChoices=order.map(i=>({text:q.choices[i],ja:(q.choicesJA||[])[i]||"",origIdx:i}));
   const correctDisplayIdx=order.indexOf(q.correctIndex);
@@ -1929,6 +2079,12 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
   const [form,setForm]=useState(()=>editQ?{...editQ,relatedIds:editQ.relatedIds||[]}:{...BLANK_Q,id:uid()});
   const [translating,setTranslating]=useState({});const [transError,setTransError]=useState(null);const [showRelated,setShowRelated]=useState(false);
   const [showImport,setShowImport]=useState(false);
+  // Load form from pending vignette queue when idx changes or queue becomes ready
+  useEffect(()=>{
+    if(pendingVigQs && pendingVigQs.qs && pendingVigQs.qs[pendingVigQs.idx]){
+      setForm({...pendingVigQs.qs[pendingVigQs.idx]});
+    }
+  }, [pendingVigQs?.idx, pendingVigQs?.ready]);
   function applyParsed(parsed,vt=""){setForm(f=>({...f,questionEN:parsed.questionEN,choices:parsed.choices.length>=2?parsed.choices:["","",""],choicesJA:Array(parsed.choices.length).fill(""),correctIndex:parsed.correctIndex,explanationEN:parsed.explanationEN||"",vignetteText:vt||""}));}
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const setChoice=(idx,val)=>setForm(f=>{const c=[...f.choices];c[idx]=val;return{...f,choices:c};});
@@ -1942,18 +2098,21 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
     if(!form.questionEN.trim())return alert("問題文（英語）を入力してください");
     if(form.choices.filter(c=>c.trim()).length<2)return alert("選択肢を2つ以上入力してください");
     if(pendingVigQs){
-      // Save current form into queue then advance
       const updatedQs=[...pendingVigQs.qs];
       updatedQs[pendingVigQs.idx]={...form};
       const nextIdx=pendingVigQs.idx+1;
       if(nextIdx<updatedQs.length){
-        // Save current & move to next
         addQ(form);
-        setPendingVigQs({qs:updatedQs,idx:nextIdx});
-        setForm({...updatedQs[nextIdx]});
+        setPendingVigQs({qs:updatedQs, idx:nextIdx, ready:false});
+        // useEffect will load next form
       } else {
-        // Last question: save and finish
-        addQ(form);
+        // Last: save all sibling relatedIds and finish
+        const allIds=updatedQs.map(q=>q.id);
+        addQ({...form, relatedIds:allIds.filter(id=>id!==form.id)});
+        // Update already-saved siblings with relatedIds (they're already in Firestore, update them)
+        updatedQs.slice(0,nextIdx-1).forEach(q=>{
+          updateQ({...q, relatedIds:allIds.filter(id=>id!==q.id)});
+        });
         setPendingVigQs(null);
         setEditQ(null);
         setPage("list");
@@ -1971,7 +2130,6 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={(parsed,vignette)=>{
       if(vignette){
-        // Build queue of question forms to edit sequentially
         const qs=vignette.subQuestions.map(sq=>({
           ...BLANK_Q, id:uid(), topic:form.topic, difficulty:form.difficulty,
           questionEN:sq.questionEN,
@@ -1981,9 +2139,7 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs
           explanationEN:sq.explanationEN||"",
           vignetteText:vignette.vignetteText
         }));
-        setPendingVigQs({qs, idx:0});
-        // Pre-fill form with first question
-        setForm({...qs[0]});
+        setPendingVigQs({qs, idx:0, ready:true});
       } else if(parsed){
         applyParsed(parsed);
       }
