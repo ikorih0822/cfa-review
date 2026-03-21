@@ -694,15 +694,20 @@ function QuestionContent({text, compact=false}) {
   const td0 = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.15)",color:"#c4a050",background:"rgba(196,160,80,0.06)",fontSize:12,fontWeight:"bold",wordBreak:"break-word",whiteSpace:"normal",verticalAlign:"top"};
   const tdn = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#c8bfaf",fontSize:12,textAlign:"right",wordBreak:"break-word",whiteSpace:"normal",verticalAlign:"top"};
   const tsec = {padding:"5px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#a89060",fontSize:11,fontWeight:"bold",background:"rgba(196,160,80,0.04)",letterSpacing:"0.05em",wordBreak:"break-word"};
+
+  // Resize handle — visible bar between columns
+  const [hoverCol, setHoverCol] = useState(null);
   const resizer = (ci) => (
     <span
       onMouseDown={e=>onMouseDown(ci,e)}
       onTouchStart={e=>onTouchStart(ci,e)}
-      style={{position:"absolute",right:0,top:0,bottom:0,width:8,cursor:"col-resize",
-        display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none",
-        background:"transparent"}}
-      title="ドラッグで列幅変更">
-      <span style={{width:2,height:"60%",background:"rgba(196,160,80,0.3)",borderRadius:1}}/>
+      onMouseEnter={()=>setHoverCol(ci)}
+      onMouseLeave={()=>setHoverCol(null)}
+      style={{position:"absolute",right:-4,top:0,bottom:0,width:8,cursor:"col-resize",
+        zIndex:10,display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none"}}>
+      <span style={{width:3,height:"70%",borderRadius:2,
+        background:hoverCol===ci?"#c4a050":"rgba(196,160,80,0.35)",
+        transition:"background 0.15s"}}/>
     </span>
   );
 
@@ -710,17 +715,27 @@ function QuestionContent({text, compact=false}) {
     <div>
       {questionText && <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap",marginBottom:8}}>{questionText}</div>}
       <div style={{overflowX:"auto",marginTop:4}}>
+        {/* Resize hint */}
+        <div style={{fontSize:10,color:"#4a5a6a",marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
+          <span style={{opacity:0.7}}>⟺</span> 列の境界をドラッグして幅を変更できます
+        </div>
         <table style={{borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"max-content",maxWidth:"100%"}}>
-          {headers && headers.length>0 && (
-            <thead><tr>
-              <th style={{...thBase,width:colWidths[0]}}>{resizer(0)}</th>
-              {headers.map((h,i)=>(
-                <th key={i} style={{...thBase,width:colWidths[i+1]}}>
-                  {h}{resizer(i+1)}
-                </th>
-              ))}
-            </tr></thead>
-          )}
+          {/* Always render a resize-handle row */}
+          <thead>
+            <tr>
+              {Array.from({length:nCols}).map((_,ci)=>{
+                const isHeader = headers && headers.length > 0;
+                const label = isHeader ? (ci===0 ? "" : headers[ci-1]||"") : "";
+                return (
+                  <th key={ci} style={{...thBase, width:colWidths[ci]||90, position:"relative",
+                    ...(isHeader?{}:{height:4,padding:0,background:"transparent",border:"none"})}}>
+                    {isHeader && label}
+                    {resizer(ci)}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
           <tbody>
             {rows.map((row,ri)=>{
               if(row.type==='section') return(
@@ -1910,7 +1925,7 @@ function HistoryPage({questions, setPage, startSingleQ, addQ}) {
 }
 
 // ── AddQuestion ───────────────────────────────────────────────────────────────
-function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
+function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage,pendingVigQs,setPendingVigQs}){
   const [form,setForm]=useState(()=>editQ?{...editQ,relatedIds:editQ.relatedIds||[]}:{...BLANK_Q,id:uid()});
   const [translating,setTranslating]=useState({});const [transError,setTransError]=useState(null);const [showRelated,setShowRelated]=useState(false);
   const [showImport,setShowImport]=useState(false);
@@ -1923,14 +1938,78 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
   async function translateField(text,targetKey){if(!text.trim())return;setTranslating(t=>({...t,[targetKey]:true}));setTransError(null);try{const r=await translateEN2JA(text);set(targetKey,r);}catch(e){setTransError("翻訳失敗: "+e.message);}finally{setTranslating(t=>({...t,[targetKey]:false}));}}
   async function translateChoiceJA(idx){const text=form.choices[idx];if(!text.trim())return;const key=`cJA_${idx}`;setTranslating(t=>({...t,[key]:true}));setTransError(null);try{const r=await translateEN2JA(text);setChoiceJA(idx,r);}catch(e){setTransError("翻訳失敗: "+e.message);}finally{setTranslating(t=>({...t,[key]:false}));}}
   async function translateAll(){setTransError(null);const tasks=[];if(form.questionEN.trim()&&!form.questionJA.trim())tasks.push(translateField(form.questionEN,"questionJA"));if(form.explanationEN.trim()&&!form.explanationJA.trim())tasks.push(translateField(form.explanationEN,"explanationJA"));form.choices.forEach((c,i)=>{if(c.trim()&&!(form.choicesJA||[])[i]?.trim())tasks.push(translateChoiceJA(i));});for(const t of tasks)await t;}
-  function submit(){if(!form.questionEN.trim())return alert("問題文（英語）を入力してください");if(form.choices.filter(c=>c.trim()).length<2)return alert("選択肢を2つ以上入力してください");editQ?updateQ(form):addQ(form);setEditQ(null);setPage("list");}
+  function submit(){
+    if(!form.questionEN.trim())return alert("問題文（英語）を入力してください");
+    if(form.choices.filter(c=>c.trim()).length<2)return alert("選択肢を2つ以上入力してください");
+    if(pendingVigQs){
+      // Save current form into queue then advance
+      const updatedQs=[...pendingVigQs.qs];
+      updatedQs[pendingVigQs.idx]={...form};
+      const nextIdx=pendingVigQs.idx+1;
+      if(nextIdx<updatedQs.length){
+        // Save current & move to next
+        addQ(form);
+        setPendingVigQs({qs:updatedQs,idx:nextIdx});
+        setForm({...updatedQs[nextIdx]});
+      } else {
+        // Last question: save and finish
+        addQ(form);
+        setPendingVigQs(null);
+        setEditQ(null);
+        setPage("list");
+      }
+    } else {
+      editQ?updateQ(form):addQ(form);
+      setEditQ(null);
+      setPage("list");
+    }
+  }
   const labels=["A","B","C","D","E"];const anyTranslating=Object.values(translating).some(Boolean);
   const canTranslateAll=(form.questionEN.trim()&&!form.questionJA.trim())||(form.explanationEN.trim()&&!form.explanationJA.trim())||form.choices.some((c,i)=>c.trim()&&!(form.choicesJA||[])[i]?.trim());
   const linkedQs=(form.relatedIds||[]).map(id=>questions.find(q=>q.id===id)).filter(Boolean);
   return(<div>
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={(parsed,vignette)=>{if(vignette){vignette.subQuestions.forEach((sq,i)=>{const newQ={...BLANK_Q,id:uid(),topic:form.topic,difficulty:form.difficulty,questionEN:sq.questionEN,choices:sq.choices.length>=2?sq.choices:["","",""],choicesJA:Array(sq.choices.length).fill(""),correctIndex:sq.correctIndex,explanationEN:sq.explanationEN||"",vignetteText:vignette.vignetteText};addQ(newQ);});setEditQ(null);setPage("list");}else if(parsed){applyParsed(parsed);}}} />
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}><button onClick={()=>{setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button><div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>{editQ?"問題を編集":"新しい問題を登録"}</div>{!editQ&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}</div>
+    <QuickImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={(parsed,vignette)=>{
+      if(vignette){
+        // Build queue of question forms to edit sequentially
+        const qs=vignette.subQuestions.map(sq=>({
+          ...BLANK_Q, id:uid(), topic:form.topic, difficulty:form.difficulty,
+          questionEN:sq.questionEN,
+          choices:sq.choices.length>=2?sq.choices:["","",""],
+          choicesJA:Array(sq.choices.length).fill(""),
+          correctIndex:sq.correctIndex,
+          explanationEN:sq.explanationEN||"",
+          vignetteText:vignette.vignetteText
+        }));
+        setPendingVigQs({qs, idx:0});
+        // Pre-fill form with first question
+        setForm({...qs[0]});
+      } else if(parsed){
+        applyParsed(parsed);
+      }
+    }} />
+    {/* ── Vignette sequential header ── */}
+    {pendingVigQs && (
+      <div style={{background:"rgba(155,143,212,0.12)",border:"1px solid rgba(155,143,212,0.35)",borderRadius:5,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{fontSize:12,color:"#b0a0e0",display:"flex",alignItems:"center",gap:6}}>
+          📖 ビニエット一括登録
+          <span style={{background:"rgba(155,143,212,0.3)",borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:"bold"}}>
+            {pendingVigQs.idx+1} / {pendingVigQs.qs.length}
+          </span>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {pendingVigQs.idx>0&&<button onClick={()=>{const prev=pendingVigQs.idx-1;setPendingVigQs(v=>({...v,idx:prev}));setForm({...pendingVigQs.qs[prev]});}} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11}}>← 前</button>}
+          <button onClick={()=>{setPendingVigQs(null);setEditQ(null);setPage("list");}} style={{...S.btn("danger"),padding:"3px 9px",fontSize:11}}>中止</button>
+        </div>
+      </div>
+    )}
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+      <button onClick={()=>{setPendingVigQs(null);setEditQ(null);setPage("list");}} style={{...S.btn("ghost"),padding:"6px 10px"}}><Ic.back/></button>
+      <div style={{fontSize:14,color:"#c4a050",letterSpacing:"0.1em"}}>
+        {pendingVigQs ? `小問 ${pendingVigQs.idx+1} を編集` : editQ?"問題を編集":"新しい問題を登録"}
+      </div>
+      {!editQ&&!pendingVigQs&&<button onClick={()=>setShowImport(true)} style={{...S.btn("teal"),padding:"6px 12px",fontSize:11,marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>📋 テキストから読込</button>}
+    </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,marginBottom:4}}><div><label style={S.label}>分野 *</label><select value={form.topic} onChange={e=>set("topic",e.target.value)} style={S.input}>{CFA_TOPICS.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t}</option>)}</select></div><div><label style={S.label}>難易度</label><select value={form.difficulty} onChange={e=>set("difficulty",e.target.value)} style={{...S.input,width:100}}>{DIFFICULTY.map(d=><option key={d} value={d} style={{background:"#0d1b2e"}}>{d}</option>)}</select></div></div>
     <div style={{marginBottom:8}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -1969,7 +2048,13 @@ function AddQuestion({editQ,setEditQ,addQ,updateQ,questions,setPage}){
     </div>
     <textarea value={form.keyPoints} onChange={e=>set("keyPoints",e.target.value)} style={{...S.textarea,borderColor:"rgba(196,160,80,0.4)"}} placeholder="覚えるべきポイント（右上のボタンでAI自動生成も可）..."/>
     <div style={{borderTop:"1px solid rgba(196,160,80,0.15)",paddingTop:14,marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題リンク</div><button onClick={()=>setShowRelated(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,borderColor:"rgba(155,143,212,0.4)",color:"#9b8fd4"}}>{showRelated?"閉じる":"問題を紐づける"}</button></div>{linkedQs.length>0&&<div style={{fontSize:11,color:"#9b8fd4",marginBottom:8}}>{linkedQs.map(q=><span key={q.id} style={{...S.tag("#9b8fd4"),marginRight:4,marginBottom:4,display:"inline-block"}}>{q.questionEN.slice(0,25)}…</span>)}</div>}{showRelated&&<RelatedQuestionPicker questions={questions} selected={form.relatedIds||[]} onChange={ids=>set("relatedIds",ids)} currentId={form.id}/>}</div>
-    <button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>{editQ?"変更を保存する":"問題を登録する"}</button>
+    <button style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15}} onClick={submit}>
+      {pendingVigQs
+        ? pendingVigQs.idx+1 < pendingVigQs.qs.length
+          ? `保存して次へ → (${pendingVigQs.idx+2}/${pendingVigQs.qs.length}問目)`
+          : `保存して完了 ✓ (全${pendingVigQs.qs.length}問)`
+        : editQ?"変更を保存する":"問題を登録する"}
+    </button>
   </div>);
 }
 
@@ -1980,6 +2065,7 @@ export default function App(){
   const [notes,setNotes]=useState([]);
   const [page,setPage]=useState("home");
   const [editQ,setEditQ]=useState(null);
+  const [pendingVigQs,setPendingVigQs]=useState(null); // {qs:[],idx:0} for sequential vignette editing
   const [editNote,setEditNote]=useState(null);
   const [viewNote,setViewNote]=useState(null);
   const [practiceMode,setPracticeMode]=useState("due");
@@ -2044,7 +2130,7 @@ export default function App(){
     <div style={S.content}>
       {page==="home"&&<Dashboard questions={questions} notes={notes} setPage={setPage} setPracticeMode={setPracticeMode}/>}
       {page==="list"&&<QuestionList questions={questions} setPage={setPage} setEditQ={setEditQ} deleteQ={deleteQ} startSingleQ={startSingleQ}/>}
-      {page==="add"&&<AddQuestion editQ={editQ} setEditQ={setEditQ} addQ={addQ} updateQ={updateQ} questions={questions} setPage={setPage}/>}
+      {page==="add"&&<AddQuestion editQ={editQ} setEditQ={setEditQ} addQ={addQ} updateQ={updateQ} questions={questions} setPage={setPage} pendingVigQs={pendingVigQs} setPendingVigQs={setPendingVigQs}/>}
       {page==="practice"&&<Practice questions={questions} updateQ={updateQ} initialMode={practiceMode} singleQId={singleQId} clearSingleQ={()=>setSingleQId(null)} onOpenSettings={()=>setShowSettings(true)}/>}
       {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
