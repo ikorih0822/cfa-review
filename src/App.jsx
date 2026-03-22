@@ -398,7 +398,6 @@ function splitVignetteSegments(text) {
 function VignettePanel({text, images}) {
   const [open, setOpen] = useState(false);
   if (!text) return null;
-  const segments = splitVignetteSegments(text);
   return (
     <div style={{marginBottom:10,border:"1px solid rgba(100,140,200,0.3)",borderRadius:5,overflow:"hidden"}}>
       <button
@@ -414,16 +413,7 @@ function VignettePanel({text, images}) {
       {open && (
         <div style={{padding:"12px 14px",background:"rgba(100,130,160,0.06)",
           maxHeight:400,overflowY:"auto"}}>
-          {segments.map((seg, i) =>
-            seg.type === 'table'
-              ? <div key={i} style={{marginBottom:8}}>
-                  <QuestionContent text={seg.content}/>
-                </div>
-              : <div key={i} style={{fontSize:13,color:"#98b0c8",lineHeight:1.8,
-                  whiteSpace:"pre-wrap",marginBottom:8}}>
-                  {seg.content}
-                </div>
-          )}
+          <QuestionContent text={text}/>
           <ImageDisplay images={images||[]}/>
         </div>
       )}
@@ -784,55 +774,141 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
 
 
 // ── QuestionContent (auto-table from tab text) ────────────────────────────────
+// Parses text into segments: plain text blocks and tab-delimited table blocks.
+// Supports: text → table → text → table → ... (multiple tables or text after table)
 function parseTabTable(text) {
   const lines = text.split(/\r?\n/);
   const isTabLine = l => l.includes('\t');
-  const firstTabIdx = lines.findIndex(isTabLine);
-  if (firstTabIdx === -1) return null; // no tabs → not a table
 
-  // Detect column headers: line just before first tab line, split by ideographic spaces
-  let headers = null;
-  let questionText = '';
-  if (firstTabIdx > 0) {
-    const prevLine = lines[firstTabIdx - 1];
-    if (/[　＀-￯]/.test(prevLine) || /\S+\s{2,}\S/.test(prevLine)) {
-      headers = prevLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
-      questionText = lines.slice(0, firstTabIdx - 1).join('\n').trim();
+  // Quick check: any tabs at all?
+  if (!lines.some(isTabLine)) return null;
+
+  // Build segments: {type:'text'|'table', content}
+  // A table block starts when we hit a tab line (possibly with a header line just before it)
+  const segments = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!isTabLine(lines[i])) {
+      // Accumulate plain text lines — but peek ahead to see if the NEXT non-empty
+      // line starts a table (then this line might be a header)
+      let textBuf = [];
+      while (i < lines.length && !isTabLine(lines[i])) {
+        // Check if this non-tab line is immediately followed by a tab line (= column header)
+        const nextTabIdx = lines.slice(i+1).findIndex(isTabLine);
+        const nextTabAbsolute = nextTabIdx === -1 ? -1 : i + 1 + nextTabIdx;
+        const linesBeforeNextTab = nextTabAbsolute === -1 ? Infinity :
+          lines.slice(i+1, nextTabAbsolute).filter(l=>l.trim()).length;
+
+        if (nextTabAbsolute !== -1 && linesBeforeNextTab === 0) {
+          // This line is a header candidate (only whitespace between it and next tab line)
+          // Check if it looks like column headers (multiple words / spaces / ideographic)
+          const l = lines[i];
+          if (/[　＀-￯]/.test(l) || /\S+\s{2,}\S/.test(l)) {
+            // Flush text buf first
+            if (textBuf.length) {
+              const t = textBuf.join('\n').trim();
+              if (t) segments.push({type:'text', content:t});
+              textBuf = [];
+            }
+            // This line is the header; table starts next
+            break;
+          }
+        }
+        textBuf.push(lines[i]);
+        i++;
+      }
+      if (textBuf.length) {
+        const t = textBuf.join('\n').trim();
+        if (t) segments.push({type:'text', content:t});
+      }
     } else {
-      questionText = lines.slice(0, firstTabIdx).join('\n').trim();
+      // We're at a tab line — check one line back for header
+      let headers = null;
+      // Look at last pushed segment to see if its last line is a header candidate
+      if (segments.length && segments[segments.length-1].type==='text') {
+        const seg = segments[segments.length-1];
+        const segLines = seg.content.split('\n');
+        const lastLine = segLines[segLines.length-1];
+        if (/[　＀-￯]/.test(lastLine) || /\S+\s{2,}\S/.test(lastLine)) {
+          headers = lastLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
+          // Remove that last line from the text segment
+          const remaining = segLines.slice(0,-1).join('\n').trim();
+          if (remaining) seg.content = remaining;
+          else segments.pop();
+        }
+      }
+
+      // Collect tab block rows (stop when we get several consecutive non-tab lines that don't look like section headers)
+      const tableLines = [];
+      while (i < lines.length) {
+        const l = lines[i];
+        if (isTabLine(l)) {
+          tableLines.push(l);
+          i++;
+        } else if (!l.trim()) {
+          // blank line — peek ahead to see if table continues
+          const rest = lines.slice(i+1);
+          const nextTab = rest.findIndex(isTabLine);
+          const nonBlanksBeforeTab = nextTab === -1 ? Infinity :
+            rest.slice(0, nextTab).filter(r=>r.trim()).length;
+          if (nextTab !== -1 && nonBlanksBeforeTab <= 1) {
+            tableLines.push(l); i++;
+          } else break;
+        } else {
+          // Non-empty, non-tab line — section header or post-table text?
+          // If the very next line is also non-tab, it's post-table text → stop table
+          const nextIsTab = i+1 < lines.length && isTabLine(lines[i+1]);
+          if (nextIsTab) {
+            // treat as section header row
+            tableLines.push(l); i++;
+          } else {
+            break; // end of table
+          }
+        }
+      }
+
+      // Parse collected tableLines into rows
+      const cleanCells = l => l.split('\t').map(c=>c.trim()).filter(c=>c!=='');
+      const tabRows = tableLines
+        .map(l => isTabLine(l) ? {type:'data', cells:cleanCells(l)} : (l.trim() ? {type:'section', text:l.trim()} : null))
+        .filter(Boolean);
+      const maxCols = Math.max(
+        ...tabRows.filter(r=>r.type==='data').map(r=>r.cells.length),
+        headers ? headers.length+1 : 0
+      );
+      if (tabRows.length) segments.push({type:'table', headers, rows:tabRows, maxCols});
     }
   }
 
-  // Parse table rows from firstTabIdx onwards
-  const tableLines = lines.slice(firstTabIdx);
-  const cleanCells = l => l.split('\t').map(c=>c.trim()).filter(c=>c!=='');
-  const maxCols = Math.max(...tableLines.filter(isTabLine).map(l=>cleanCells(l).length), headers?headers.length+1:0);
-
-  const rows = tableLines.map(l => {
-    if (!isTabLine(l)) return { type:'section', text:l.trim() };
-    return { type:'data', cells:cleanCells(l) };
-  }).filter(r => r.type==='data' || r.text);
-
-  return { questionText, headers, rows, maxCols };
+  return segments.length ? segments : null;
 }
 
 function QuestionContent({text, compact=false}) {
   if (!text) return null;
-  const parsed = parseTabTable(text);
-  if (!parsed) {
+  const segments = parseTabTable(text);
+  if (!segments) {
     return <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap"}}>{text}</div>;
   }
-  const { questionText, headers, rows, maxCols } = parsed;
+  return <div>{segments.map((seg,si) =>
+    seg.type==='text'
+      ? <div key={si} style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap",marginBottom:seg.content?8:0}}>{seg.content}</div>
+      : <TableBlock key={si} seg={seg} compact={compact}/>
+  )}</div>;
+}
+
+// Single table block with resizable columns
+function TableBlock({seg, compact}) {
+  const {headers, rows, maxCols} = seg;
   const nCols = headers && headers.length > 0 ? headers.length + 1 : maxCols;
-  // Default col widths in px — user can drag to resize
   const [colWidths, setColWidths] = useState(() => Array(nCols).fill(compact ? 90 : 120));
+  const [hoverCol, setHoverCol] = useState(null);
   const dragging = useRef(null);
 
   function onMouseDown(ci, e) {
     e.preventDefault();
-    const startX = e.clientX;
-    const startW = colWidths[ci];
-    dragging.current = { ci, startX, startW };
+    const startX = e.clientX, startW = colWidths[ci];
+    dragging.current = {ci, startX, startW};
     const onMove = ev => {
       const delta = ev.clientX - dragging.current.startX;
       setColWidths(ws => ws.map((w,i) => i===dragging.current.ci ? Math.max(40, dragging.current.startW+delta) : w));
@@ -841,10 +917,8 @@ function QuestionContent({text, compact=false}) {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }
-  // Touch support
   function onTouchStart(ci, e) {
-    const startX = e.touches[0].clientX;
-    const startW = colWidths[ci];
+    const startX = e.touches[0].clientX, startW = colWidths[ci];
     const onMove = ev => {
       const delta = ev.touches[0].clientX - startX;
       setColWidths(ws => ws.map((w,i) => i===ci ? Math.max(40, startW+delta) : w));
@@ -859,63 +933,49 @@ function QuestionContent({text, compact=false}) {
   const tdn = {padding:"4px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#c8bfaf",fontSize:12,textAlign:"right",wordBreak:"break-word",whiteSpace:"normal",verticalAlign:"top"};
   const tsec = {padding:"5px 8px",border:"1px solid rgba(196,160,80,0.12)",color:"#a89060",fontSize:11,fontWeight:"bold",background:"rgba(196,160,80,0.04)",letterSpacing:"0.05em",wordBreak:"break-word"};
 
-  // Resize handle — visible bar between columns
-  const [hoverCol, setHoverCol] = useState(null);
   const resizer = (ci) => (
-    <span
-      onMouseDown={e=>onMouseDown(ci,e)}
-      onTouchStart={e=>onTouchStart(ci,e)}
-      onMouseEnter={()=>setHoverCol(ci)}
-      onMouseLeave={()=>setHoverCol(null)}
+    <span onMouseDown={e=>onMouseDown(ci,e)} onTouchStart={e=>onTouchStart(ci,e)}
+      onMouseEnter={()=>setHoverCol(ci)} onMouseLeave={()=>setHoverCol(null)}
       style={{position:"absolute",right:-4,top:0,bottom:0,width:8,cursor:"col-resize",
         zIndex:10,display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none"}}>
       <span style={{width:3,height:"70%",borderRadius:2,
-        background:hoverCol===ci?"#c4a050":"rgba(196,160,80,0.35)",
-        transition:"background 0.15s"}}/>
+        background:hoverCol===ci?"#c4a050":"rgba(196,160,80,0.35)",transition:"background 0.15s"}}/>
     </span>
   );
 
   return (
-    <div>
-      {questionText && <div style={{fontSize:15,lineHeight:1.7,color:"#f0e8d8",whiteSpace:"pre-wrap",marginBottom:8}}>{questionText}</div>}
-      <div style={{overflowX:"auto",marginTop:4}}>
-        {/* Resize hint */}
-        <div style={{fontSize:10,color:"#4a5a6a",marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
-          <span style={{opacity:0.7}}>⟺</span> 列の境界をドラッグして幅を変更できます
-        </div>
-        <table style={{borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"max-content",maxWidth:"100%"}}>
-          {/* Always render a resize-handle row */}
-          <thead>
-            <tr>
-              {Array.from({length:nCols}).map((_,ci)=>{
-                const isHeader = headers && headers.length > 0;
-                const label = isHeader ? (ci===0 ? "" : headers[ci-1]||"") : "";
-                return (
-                  <th key={ci} style={{...thBase, width:colWidths[ci]||90, position:"relative",
-                    ...(isHeader?{}:{height:4,padding:0,background:"transparent",border:"none"})}}>
-                    {isHeader && label}
-                    {resizer(ci)}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row,ri)=>{
-              if(row.type==='section') return(
-                <tr key={ri}><td colSpan={nCols} style={tsec}>{row.text}</td></tr>
-              );
-              return(
-                <tr key={ri}>
-                  {row.cells.map((cell,ci)=>(
-                    <td key={ci} style={{...(ci===0?td0:tdn), width:colWidths[ci]||90}}>{cell}</td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div style={{overflowX:"auto",marginBottom:8}}>
+      <div style={{fontSize:10,color:"#4a5a6a",marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
+        <span style={{opacity:0.7}}>⟺</span> 列の境界をドラッグして幅を変更できます
       </div>
+      <table style={{borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",width:"max-content",maxWidth:"100%"}}>
+        <thead><tr>
+          {Array.from({length:nCols}).map((_,ci)=>{
+            const isHdr = headers && headers.length > 0;
+            const label = isHdr ? (ci===0 ? "" : headers[ci-1]||"") : "";
+            return (
+              <th key={ci} style={{...thBase, width:colWidths[ci]||90, position:"relative",
+                ...(isHdr?{}:{height:4,padding:0,background:"transparent",border:"none"})}}>
+                {isHdr && label}{resizer(ci)}
+              </th>
+            );
+          })}
+        </tr></thead>
+        <tbody>
+          {rows.map((row,ri)=>{
+            if(row.type==='section') return(
+              <tr key={ri}><td colSpan={nCols} style={tsec}>{row.text}</td></tr>
+            );
+            return(
+              <tr key={ri}>
+                {row.cells.map((cell,ci)=>(
+                  <td key={ci} style={{...(ci===0?td0:tdn), width:colWidths[ci]||90}}>{cell}</td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
