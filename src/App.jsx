@@ -47,7 +47,7 @@ async function fbSaveNotes(uid, ns) {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CFA_TOPICS = ["Ethics & Professional Standards","Quantitative Methods","Economics","Financial Statement Analysis","Corporate Issuers","Equity Investments","Fixed Income","Derivatives","Alternative Investments","Portfolio Management","Wealth Planning"];
 const DIFFICULTY = ["Easy","Medium","Hard"];
-const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[], tableData:null, vignetteText:"" };
+const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[], tableData:null, vignetteText:"", questionImages:[], vignetteImages:[] };
 const BLANK_NOTE = { id:null, title:"", content:"", relatedIds:[], createdAt:null, updatedAt:null };
 
 // ── SM-2 ──────────────────────────────────────────────────────────────────────
@@ -391,7 +391,7 @@ function splitVignetteSegments(text) {
   return segments;
 }
 
-function VignettePanel({text}) {
+function VignettePanel({text, images}) {
   const [open, setOpen] = useState(false);
   if (!text) return null;
   const segments = splitVignetteSegments(text);
@@ -420,6 +420,7 @@ function VignettePanel({text}) {
                   {seg.content}
                 </div>
           )}
+          <ImageDisplay images={images||[]}/>
         </div>
       )}
     </div>
@@ -430,6 +431,7 @@ function VignettePanel({text}) {
 // Shows all sub-questions with same vignetteText stacked vertically
 function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpenSettings}) {
   const qs = questions.filter(q => q.vignetteText === vignetteText && q.choices.filter(c=>c.trim()).length >= 2);
+  const vigImages = (qs[0]?.vignetteImages)||[];
   const [answers, setAnswers] = useState(() => Array(qs.length).fill(null));   // null | {selected, confirmed}
   const [results, setResults] = useState(() => Array(qs.length).fill(null));
   const labels = ["A","B","C","D","E"];
@@ -468,7 +470,7 @@ function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpen
   return (
     <div>
       {/* Passage */}
-      <VignettePanel text={vignetteText}/>
+      <VignettePanel text={vignetteText} images={vigImages}/>
 
       {/* Progress */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -489,6 +491,7 @@ function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpen
               小問 {qi+1}
             </div>
             <QuestionContent text={q.questionEN}/>
+            <ImageDisplay images={q.questionImages||[]}/>
 
             {/* Choices */}
             <div style={{marginTop:10,marginBottom:8}}>
@@ -598,8 +601,8 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   return(<div>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button><div style={{flex:1,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}><div style={{width:`${(qIdx/queue.length)*100}%`,height:"100%",background:"#c4a050",borderRadius:2,transition:"width 0.3s"}}/></div><div style={{fontSize:11,color:"#7a8a9a",minWidth:48,textAlign:"right"}}>{qIdx+1} / {queue.length}</div></div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}><span style={S.tag()}>{q.topic}</span><span style={S.tag(diffColor(q.difficulty))}>{q.difficulty}</span><SRBadge q={q}/></div>
-    {q.vignetteText&&<VignettePanel text={q.vignetteText}/>}
-    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
+    {q.vignetteText&&<VignettePanel text={q.vignetteText} images={q.vignetteImages||[]}/>}
+    <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/><ImageDisplay images={q.questionImages||[]}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
     {q.choices.some((_,i)=>(q.choicesJA||[])[i]?.trim())&&<div style={{marginBottom:6}}><button onClick={()=>setShowChoicesJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showChoicesJA?<Ic.eyeOff/>:<Ic.eye/>} 選択肢の日本語訳</button></div>}
     <div style={{marginBottom:10}}>{displayChoices.map((ch,dIdx)=>(<button key={dIdx} style={S.choiceBtn(choiceState(dIdx))} onClick={()=>handleChoice(dIdx)}><div style={{flex:1}}><div style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span><span style={{lineHeight:1.5}}>{ch.text}</span></div>{showChoicesJA&&ch.ja&&<div style={{marginTop:4,marginLeft:28,fontSize:12,color:"#7a8a9a",lineHeight:1.5}}>{ch.ja}</div>}</div>{choiceState(dIdx)==="correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}{choiceState(dIdx)==="wrong"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.xmark/></span>}{choiceState(dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto",flexShrink:0}}><Ic.check/></span>}</button>))}</div>
     {answered&&!confirmed&&<div style={{marginBottom:10}}>
@@ -1280,6 +1283,107 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
       <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(196,160,80,0.15)',borderRadius:4,padding:'10px 12px',marginBottom:12}}>
         <QuestionContent text={value}/>
       </div>
+    </div>
+  );
+}
+
+
+// ── ImageAttachment ───────────────────────────────────────────────────────────
+// Converts File → base64 data URL
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// Display images (read-only)
+function ImageDisplay({images}) {
+  const [lightbox, setLightbox] = useState(null);
+  if (!images || images.length === 0) return null;
+  return (
+    <div style={{marginTop:8,marginBottom:4}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {images.map((src, i) => (
+          <img key={i} src={src} alt={`image ${i+1}`}
+            onClick={() => setLightbox(src)}
+            style={{maxHeight:140,maxWidth:"100%",borderRadius:4,
+              border:"1px solid rgba(196,160,80,0.3)",cursor:"zoom-in",objectFit:"contain",
+              background:"rgba(0,0,0,0.3)"}}/>
+        ))}
+      </div>
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:500,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"zoom-out"}}>
+          <img src={lightbox} alt="preview"
+            style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:6,objectFit:"contain"}}/>
+          <button onClick={()=>setLightbox(null)}
+            style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",
+              border:"none",color:"#fff",borderRadius:"50%",width:36,height:36,fontSize:20,
+              cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Image uploader (edit mode)
+function ImageUploader({images, onChange, label="画像"}) {
+  const inputRef = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function handleFiles(files) {
+    const newImgs = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      if (file.size > 3 * 1024 * 1024) { alert(`${file.name} は3MBを超えています`); continue; }
+      const b64 = await fileToBase64(file);
+      newImgs.push(b64);
+    }
+    if (newImgs.length) onChange([...(images||[]), ...newImgs]);
+  }
+
+  function removeImage(idx) {
+    onChange((images||[]).filter((_,i) => i !== idx));
+  }
+
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>
+        📷 {label}の画像
+      </div>
+      {/* Existing images */}
+      {(images||[]).length > 0 && (
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+          {images.map((src, i) => (
+            <div key={i} style={{position:"relative",display:"inline-block"}}>
+              <img src={src} alt="" style={{height:80,width:"auto",maxWidth:140,borderRadius:4,
+                border:"1px solid rgba(196,160,80,0.3)",objectFit:"contain",background:"rgba(0,0,0,0.3)"}}/>
+              <button onClick={()=>removeImage(i)}
+                style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",
+                  border:"none",background:"#c0392b",color:"#fff",fontSize:11,cursor:"pointer",
+                  display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Drop zone */}
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={e=>{e.preventDefault();setDragOver(false);handleFiles(e.dataTransfer.files);}}
+        onClick={()=>inputRef.current?.click()}
+        style={{border:`2px dashed ${dragOver?"#c4a050":"rgba(196,160,80,0.25)"}`,
+          borderRadius:5,padding:"10px 14px",textAlign:"center",cursor:"pointer",
+          background:dragOver?"rgba(196,160,80,0.08)":"rgba(255,255,255,0.02)",
+          color:"#5a6a7a",fontSize:12,transition:"all 0.15s"}}>
+        📎 クリックまたはドラッグで画像を追加（JPG・PNG・GIF、最大3MB）
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" multiple style={{display:"none"}}
+        onChange={e=>handleFiles(e.target.files)}/>
     </div>
   );
 }
@@ -2085,7 +2189,7 @@ function AddQuestion({editQ,setEditQ,addQ,addQs,updateQ,questions,setPage}){
   const [showImport,setShowImport]=useState(false);
   // Local vignette queue — avoids stale closure issues with App-level state
   const [vigQueue,setVigQueue]=useState(null); // {qs:[], idx:0}
-  function applyParsed(parsed,vt=""){setForm(f=>({...f,questionEN:parsed.questionEN,choices:parsed.choices.length>=2?parsed.choices:["","",""],choicesJA:Array(parsed.choices.length).fill(""),correctIndex:parsed.correctIndex,explanationEN:parsed.explanationEN||"",vignetteText:vt||""}));}
+  function applyParsed(parsed,vt=""){setForm(f=>({...f,questionEN:parsed.questionEN,choices:parsed.choices.length>=2?parsed.choices:["","",""],choicesJA:Array(parsed.choices.length).fill(""),correctIndex:parsed.correctIndex,explanationEN:parsed.explanationEN||"",vignetteText:vt||"",questionImages:f.questionImages||[],vignetteImages:f.vignetteImages||[]}));}
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const setChoice=(idx,val)=>setForm(f=>{const c=[...f.choices];c[idx]=val;return{...f,choices:c};});
   const setChoiceJA=(idx,val)=>setForm(f=>{const c=[...(f.choicesJA||[])];c[idx]=val;return{...f,choicesJA:c};});
@@ -2184,8 +2288,10 @@ function AddQuestion({editQ,setEditQ,addQ,addQs,updateQ,questions,setPage}){
         accentColor="rgba(100,140,200,0.4)"
         textColor="#8aafcc"
       />
+      {form.vignetteText!==undefined && <ImageUploader images={form.vignetteImages||[]} onChange={imgs=>set("vignetteImages",imgs)} label="ビニエット"/>}
     </div>
     <InlineTableEditor value={form.questionEN} onChange={v=>set("questionEN",v)}/>
+    <ImageUploader images={form.questionImages||[]} onChange={imgs=>set("questionImages",imgs)} label="問題文"/>
     <label style={S.label}>選択肢 * （正解をクリックして選択）</label>
     {form.choices.map((choice,idx)=>{const jaVal=(form.choicesJA||[])[idx]||"";const isTrans=!!translating[`cJA_${idx}`];return(<div key={idx} style={{marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4}}><button onClick={()=>set("correctIndex",idx)} style={{minWidth:32,height:36,borderRadius:4,border:`2px solid ${form.correctIndex===idx?"#4aad8b":"rgba(196,160,80,0.3)"}`,background:form.correctIndex===idx?"rgba(74,173,139,0.2)":"transparent",color:form.correctIndex===idx?"#4aad8b":"#5a6a7a",cursor:"pointer",fontSize:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center"}}>{labels[idx]}</button><input value={choice} onChange={e=>setChoice(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1}} placeholder={`Choice ${labels[idx]}`}/>{form.choices.length>2&&<button onClick={()=>removeChoice(idx)} style={{...S.btn("danger"),padding:"6px 8px",minWidth:32,height:36}}><Ic.trash/></button>}</div><div style={{display:"flex",gap:6,alignItems:"center",paddingLeft:38}}><input value={jaVal} onChange={e=>setChoiceJA(idx,e.target.value)} style={{...S.input,marginBottom:0,flex:1,fontSize:13,borderColor:jaVal?"rgba(100,180,220,0.3)":"rgba(196,160,80,0.15)"}} placeholder={`選択肢 ${labels[idx]} の日本語訳`}/>{choice.trim()&&<TranslateBtn loading={isTrans} onClick={()=>translateChoiceJA(idx)}/>}</div></div>);})}
     {form.choices.length<5&&<button onClick={addChoice} style={{...S.btn("ghost"),fontSize:12,marginBottom:14}}>+ 選択肢を追加</button>}
