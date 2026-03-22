@@ -47,6 +47,7 @@ async function fbSaveNotes(uid, ns) {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CFA_TOPICS = ["Ethics & Professional Standards","Quantitative Methods","Economics","Financial Statement Analysis","Corporate Issuers","Equity Investments","Fixed Income","Derivatives","Alternative Investments","Portfolio Management","Wealth Planning"];
 const DIFFICULTY = ["Easy","Medium","Hard"];
+function getTomorrow() { const d=new Date(); d.setDate(d.getDate()+1); return d.toISOString().split("T")[0]; }
 const BLANK_Q = { id:null, topic:CFA_TOPICS[0], difficulty:"Medium", questionEN:"", choices:["","",""], choicesJA:["","",""], correctIndex:0, explanationEN:"", questionJA:"", explanationJA:"", keyPoints:"", relatedIds:[], attemptCount:0, wrongCount:0, lastAttempted:null, srInterval:1, srEaseFactor:2.5, srRepetitions:0, srNextReview:null, savedChats:[], tableData:null, vignetteText:"", questionImages:[], vignetteImages:[] };
 const BLANK_NOTE = { id:null, title:"", content:"", relatedIds:[], createdAt:null, updatedAt:null };
 
@@ -60,9 +61,12 @@ function sm2Update(q, correct) {
   const next = new Date(); next.setDate(next.getDate()+srInterval);
   return { srInterval, srEaseFactor, srRepetitions, srNextReview: next.toISOString().split("T")[0] };
 }
-function isDueToday(q) { if(!q.srNextReview)return true; return q.srNextReview<=new Date().toISOString().split("T")[0]; }
+function isDueToday(q) {
+  if(!q.srNextReview) return false; // 未学習 = まだ期限なし（登録翌日から）
+  return q.srNextReview<=new Date().toISOString().split("T")[0];
+}
 function daysUntil(q) { if(!q.srNextReview)return 0; const t=new Date();t.setHours(0,0,0,0);const n=new Date(q.srNextReview);n.setHours(0,0,0,0);return Math.round((n-t)/86400000); }
-function reviewLabel(q) { if(!q.srNextReview)return{label:"未学習",color:"#7a8a9a"}; const d=daysUntil(q); if(d<0)return{label:`${Math.abs(d)}日超過`,color:"#e05a5a"}; if(d===0)return{label:"今日",color:"#4aad8b"}; if(d===1)return{label:"明日",color:"#c4a050"}; return{label:`${d}日後`,color:"#6b9fd4"}; }
+function reviewLabel(q) { if(!q.srNextReview)return{label:"明日",color:"#c4a050"}; const d=daysUntil(q); if(d<0)return{label:`${Math.abs(d)}日超過`,color:"#e05a5a"}; if(d===0)return{label:"今日",color:"#4aad8b"}; if(d===1)return{label:"明日",color:"#c4a050"}; return{label:`${d}日後`,color:"#6b9fd4"}; }
 
 // ── Translation ───────────────────────────────────────────────────────────────
 function splitChunks(t,max=400){if(t.length<=max)return[t];const r=[];let s=t;while(s.length>max){let c=s.lastIndexOf(". ",max);if(c<50)c=s.lastIndexOf(" ",max);if(c<50)c=max;r.push(s.slice(0,c+1).trim());s=s.slice(c+1).trim();}if(s)r.push(s);return r;}
@@ -429,6 +433,29 @@ function VignettePanel({text, images}) {
 
 // ── VignetteGroupPractice ─────────────────────────────────────────────────────
 // Shows all sub-questions with same vignetteText stacked vertically
+// ── KeyPointsCard ─────────────────────────────────────────────────────────────
+function KeyPointsCard({q, qi, updateQ}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div style={{background:"rgba(196,160,80,0.05)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:5,padding:"10px 12px",marginBottom:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:11,color:"#c4a050",display:"flex",alignItems:"center",gap:5}}><Ic.flag/> 📌 覚えるべきポイント</div>
+        <button onClick={()=>setEditing(v=>!v)} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11,borderColor:"rgba(196,160,80,0.3)"}}>
+          {editing?"✓ 保存":"✏ 編集"}
+        </button>
+      </div>
+      {editing
+        ? <textarea value={q.keyPoints||""} onChange={e=>{updateQ({...q,keyPoints:e.target.value});}}
+            style={{...S.textarea,minHeight:90,fontSize:13,marginBottom:0,borderColor:"rgba(196,160,80,0.35)"}}
+            placeholder="覚えるべきポイントを入力..."/>
+        : <div style={{fontSize:13,color:q.keyPoints?"#d4c08a":"#4a5a6a",lineHeight:1.7,whiteSpace:"pre-wrap",minHeight:32}}>
+            {q.keyPoints||<span style={{fontStyle:"italic"}}>まだ入力されていません。「✏ 編集」から追加できます。</span>}
+          </div>
+      }
+    </div>
+  );
+}
+
 function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpenSettings}) {
   const qs = questions.filter(q => q.vignetteText === vignetteText && q.choices.filter(c=>c.trim()).length >= 2);
   const vigImages = (qs[0]?.vignetteImages)||[];
@@ -526,10 +553,11 @@ function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpen
                   <div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{r?.srInterval}日後</strong></div>
                 </div>
               </div>
-              <div style={{...S.card,padding:"10px 14px"}}>
+              <div style={{...S.card,padding:"10px 14px",marginBottom:8}}>
                 <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:6}}>EXPLANATION</div>
                 <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>
               </div>
+              <KeyPointsCard q={q} qi={qi} updateQ={updateQ}/>
             </>)}
           </div>
         );
@@ -613,24 +641,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
     {confirmed&&<div>
       {lastResult&&<div style={{...S.card,borderColor:lastResult.correct?"rgba(74,173,139,0.4)":"rgba(224,90,90,0.3)",background:lastResult.correct?"rgba(74,173,139,0.06)":"rgba(224,90,90,0.06)",marginBottom:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:22}}>{lastResult.correct?"✓":"✗"}</span><div><div style={{fontSize:13,color:lastResult.correct?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>{lastResult.correct?"正解！":"不正解"}</div><div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{lastResult.srInterval}日後</strong></div></div></div>}
       <div style={{...S.card,marginBottom:8}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>EXPLANATION</div><div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>{q.explanationJA&&<div style={{marginTop:10}}><button onClick={()=>setRevealed(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{revealed?<Ic.eyeOff/>:<Ic.eye/>} 日本語解説</button>{revealed&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.explanationJA}</div>}</div>}</div>
-      <div style={{marginBottom:10,background:"rgba(196,160,80,0.05)",border:"1px solid rgba(196,160,80,0.2)",borderRadius:5,padding:"10px 12px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-          <div style={{fontSize:11,color:"#c4a050",display:"flex",alignItems:"center",gap:5}}><Ic.flag/> 📌 覚えるべきポイント</div>
-          <button onClick={()=>setEditingKP(v=>!v)} style={{...S.btn("ghost"),padding:"3px 9px",fontSize:11,borderColor:"rgba(196,160,80,0.3)"}}>
-            {editingKP?"✓ 保存":"✏ 編集"}
-          </button>
-        </div>
-        {editingKP
-          ? <textarea
-              value={q.keyPoints||""}
-              onChange={e=>{const updated={...q,keyPoints:e.target.value};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));}}
-              style={{...S.textarea,minHeight:90,fontSize:13,marginBottom:0,borderColor:"rgba(196,160,80,0.35)"}}
-              placeholder="覚えるべきポイントを入力..."/>
-          : <div style={{fontSize:13,color:q.keyPoints?"#d4c08a":"#4a5a6a",lineHeight:1.7,whiteSpace:"pre-wrap",minHeight:32}}>
-              {q.keyPoints||<span style={{fontStyle:"italic"}}>まだ入力されていません。「✏ 編集」から追加できます。</span>}
-            </div>
-        }
-      </div>
+      <KeyPointsCard q={q} updateQ={q=>{updateQ(q);setQueue(prev=>prev.map((x,i)=>i===qIdx?q:x));}}/>
       {relatedQs.length>0&&<div style={{...S.card,borderColor:"rgba(155,143,212,0.3)",marginBottom:10}}><div style={{fontSize:10,color:"#9b8fd4",letterSpacing:"0.15em",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><Ic.link/> 関連問題</div>{relatedQs.map(rq=>(<div key={rq.id} style={{marginBottom:6,padding:"8px 10px",background:"rgba(155,143,212,0.06)",borderRadius:4,border:"1px solid rgba(155,143,212,0.15)"}}><div style={{display:"flex",gap:6,marginBottom:4}}><span style={S.tag("#9b8fd4")}>{rq.topic.split(" ").slice(0,2).join(" ")}</span></div><div style={{fontSize:12,color:"#a0b0c0",lineHeight:1.5}}>{rq.questionEN.slice(0,100)}…</div></div>))}</div>}
       <SavedChats
         chats={q.savedChats||[]}
@@ -2351,8 +2362,8 @@ export default function App(){
   const persistQ=useCallback(async(qs,uid)=>{setQuestions(qs);setSaving(true);await fbSaveQuestions(uid,qs);setSaving(false);},[]);
   const persistN=useCallback(async(ns,uid)=>{setNotes(ns);setSaving(true);await fbSaveNotes(uid,ns);setSaving(false);},[]);
 
-  const addQ=q=>persistQ([...questions,q],user.uid);
-  const addQs=qs=>persistQ([...questions,...qs],user.uid); // batch add multiple questions
+  const addQ=q=>persistQ([...questions,{...q,srNextReview:q.srNextReview||getTomorrow()}],user.uid);
+  const addQs=qs=>persistQ([...questions,...qs.map(q=>({...q,srNextReview:q.srNextReview||getTomorrow()}))],user.uid); // batch add multiple questions
   const updateQ=q=>persistQ(questions.map(x=>x.id===q.id?q:x),user.uid);
   const deleteQ=id=>persistQ(questions.filter(q=>q.id!==id),user.uid);
   const addNote=n=>persistN([...notes,n],user.uid);
