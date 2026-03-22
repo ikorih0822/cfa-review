@@ -1952,7 +1952,7 @@ Rules:
 }
 
 // ── HistoryPage ───────────────────────────────────────────────────────────────
-function HistoryPage({questions, setPage, startSingleQ, addQ}) {
+function HistoryPage({questions, setPage, startSingleQ, addQ, setEditQ}) {
   const [sortBy, setSortBy] = useState("date");   // date | wrong | topic
   const [filterTopic, setFilterTopic] = useState("All");
   const [similarSrc, setSimilarSrc] = useState(null);
@@ -2050,6 +2050,10 @@ function HistoryPage({questions, setPage, startSingleQ, addQ}) {
                 <button onClick={()=>startSingleQ(q.id)}
                   style={{...S.btn("ghost"),padding:"4px 8px",fontSize:10,marginTop:4}}>
                   解く
+                </button>
+                <button onClick={()=>{setEditQ(q);setPage("add");}}
+                  style={{...S.btn("ghost"),padding:"4px 8px",fontSize:10,marginTop:2}}>
+                  <Ic.edit/>
                 </button>
                 {q.attemptCount>=2 && acc<70 && (
                   <button onClick={()=>setSimilarSrc(q)}
@@ -2289,7 +2293,7 @@ export default function App(){
       {page==="notes"&&<NoteList notes={notes} questions={questions} setPage={setPage} setEditNote={setEditNote} setViewNote={setViewNote} deleteNote={deleteNote}/>}
       {page==="note-edit"&&<NoteEditor editNote={editNote} setEditNote={setEditNote} addNote={addNote} updateNote={updateNote} questions={questions} setPage={setPage}/>}
       {page==="note-view"&&<NoteViewer note={viewNote} questions={questions} setPage={setPage} setEditNote={setEditNote}/>}
-      {page==="history"&&<HistoryPage questions={questions} setPage={setPage} startSingleQ={startSingleQ} addQ={addQ}/>}
+      {page==="history"&&<HistoryPage questions={questions} setPage={setPage} startSingleQ={startSingleQ} addQ={addQ} setEditQ={setEditQ}/>}
     </div>
     {showNav&&<div style={S.nav}>{navItems.map(item=>(<button key={item.key} style={S.navBtn(page===item.key||(item.key==="notes"&&(page==="note-edit"||page==="note-view")))} onClick={()=>{setEditQ(null);setSingleQId(null);setPage(item.key);}}><item.icon/>{item.label}{item.key==="practice"&&dueCount>0&&<span style={{position:"absolute",top:0,right:4,background:"#4aad8b",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>{dueCount}</span>}</button>))}</div>}
   </div>);
