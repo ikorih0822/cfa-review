@@ -570,9 +570,30 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   useEffect(()=>{if(singleQId){const q=questions.find(x=>x.id===singleQId);if(q){setQueue([q]);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}}}, [singleQId]);
   const topics=["All",...CFA_TOPICS.filter(t=>questions.some(q=>q.topic===t))];
   const getPool=()=>{let p=questions.filter(q=>filterTopic==="All"||q.topic===filterTopic);if(srMode==="due")p=p.filter(isDueToday);return p;};
-  function startSession(){const pool=getPool();if(!pool.length)return;let sorted=[...pool];if(srMode==="short"){sorted.sort((a,b)=>a.questionEN.length-b.questionEN.length);}else{sorted.sort((a,b)=>daysUntil(a)-daysUntil(b));sorted.sort(()=>Math.random()-0.5);}const withOrder=sorted.map(q=>{const n=q.choices.filter(c=>c.trim()).length;const order=[...Array(n).keys()].sort(()=>Math.random()-0.5);return{...q,_choiceOrder:order};});setQueue(withOrder);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);}
+  function startSession(){
+    const pool=getPool();if(!pool.length)return;
+    // Deduplicate vignette groups: keep only 1 representative per vignetteText
+    const seenVig=new Set();
+    const deduped=pool.filter(q=>{
+      if(!q.vignetteText)return true;
+      if(seenVig.has(q.vignetteText))return false;
+      seenVig.add(q.vignetteText);return true;
+    });
+    let sorted=[...deduped];
+    if(srMode==="short"){sorted.sort((a,b)=>a.questionEN.length-b.questionEN.length);}
+    else{sorted.sort((a,b)=>daysUntil(a)-daysUntil(b));sorted.sort(()=>Math.random()-0.5);}
+    const withOrder=sorted.map(q=>{const n=q.choices.filter(c=>c.trim()).length;const order=[...Array(n).keys()].sort(()=>Math.random()-0.5);return{...q,_choiceOrder:order};});
+    setQueue(withOrder);setQIdx(0);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);setSessionResults([]);
+  }
   function handleChoice(idx){if(confirmed)return;setSelected(idx);}function confirmAnswer(){if(selected===null||confirmed)return;setConfirmed(true);const q=queue[qIdx];const order=q._choiceOrder||q.choices.map((_,i)=>i);const correctDIdx=order.indexOf(q.correctIndex);const correct=selected===correctDIdx;const sr=sm2Update(q,correct);const updated={...q,attemptCount:q.attemptCount+1,wrongCount:q.wrongCount+(correct?0:1),lastAttempted:new Date().toISOString(),...sr};updateQ(updated);setQueue(prev=>prev.map((x,i)=>i===qIdx?updated:x));setSessionResults(prev=>[...prev,{id:q.id,correct,srInterval:sr.srInterval,questionEN:q.questionEN}]);}
   function next(){if(qIdx+1>=queue.length){setQueue(null);if(singleQId)clearSingleQ();return;}setQIdx(i=>i+1);setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);}
+  function skip(){
+    // Move current question to end of queue, advance without recording result
+    setQueue(prev=>{const next=[...prev];const [skipped]=next.splice(qIdx,1);return [...next,skipped];});
+    // qIdx stays the same — now points to what was next
+    if(qIdx>=queue.length-1){setQueue(null);if(singleQId)clearSingleQ();return;}
+    setSelected(null);setConfirmed(false);setRevealed(false);setShowJA(false);setShowChoicesJA(false);setShowKP(false);setEditingKP(false);
+  }
   function handleBack(){setQueue(null);if(singleQId)clearSingleQ();}
 
   if(!queue){
@@ -583,7 +604,15 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>{[["due","🔁 復習期限","SM-2期限の問題"],["all","📚 全問演習","全問シャッフル"],["short","📝 短問優先","文章短め順"]].map(([mode,title,desc])=>(<button key={mode} onClick={()=>setSrMode(mode)} style={{background:srMode===mode?"rgba(196,160,80,0.12)":"rgba(255,255,255,0.02)",border:`1px solid ${srMode===mode?"rgba(196,160,80,0.5)":"rgba(196,160,80,0.15)"}`,borderRadius:6,padding:"10px 8px",cursor:"pointer",textAlign:"left"}}><div style={{fontSize:12,color:srMode===mode?"#c4a050":"#8a9ab0",marginBottom:3}}>{title}</div><div style={{fontSize:10,color:"#5a6a7a"}}>{desc}</div></button>))}</div>
       <label style={S.label}>分野を選択</label>
       <select value={filterTopic} onChange={e=>setFilterTopic(e.target.value)} style={S.input}>{topics.map(t=><option key={t} value={t} style={{background:"#0d1b2e"}}>{t==="All"?"全分野":t}</option>)}</select>
-      <div style={{fontSize:12,color:pool.length===0?"#e05a5a":"#4aad8b",marginBottom:14}}>{srMode==="due"?`今日の復習: ${pool.length} 問`:srMode==="short"?`短問優先: ${pool.length} 問 (文章短め順)`:` 対象: ${pool.length} 問`}</div>
+      <div style={{fontSize:12,color:pool.length===0?"#e05a5a":"#4aad8b",marginBottom:14}}>
+        {(()=>{
+          const seenV=new Set();
+          const deduped=pool.filter(q=>{if(!q.vignetteText)return true;if(seenV.has(q.vignetteText))return false;seenV.add(q.vignetteText);return true;});
+          const vigCount=[...seenV].length;
+          const label=srMode==="due"?`今日の復習: ${deduped.length} 問`:srMode==="short"?`短問優先: ${deduped.length} 問 (文章短め順)`:`対象: ${deduped.length} 問`;
+          return vigCount>0?`${label}（うち大問 ${vigCount} グループ）`:label;
+        })()}
+      </div>
       {pool.length===0&&srMode==="due"&&<div style={{...S.card,textAlign:"center",padding:20,borderColor:"rgba(74,173,139,0.3)",marginBottom:14}}><div style={{fontSize:24,marginBottom:8}}>🎉</div><div style={{color:"#4aad8b",fontSize:14}}>今日の復習は完了しています！</div></div>}
       <button disabled={pool.length===0} onClick={startSession} style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,opacity:pool.length===0?0.4:1}}>演習を開始する →</button>
     </div>);
@@ -595,9 +624,13 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   if(q.vignetteText){
     return(
       <div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           <button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button>
           <div style={{flex:1,fontSize:12,color:"#b0a0e0"}}>📖 ビニエット演習</div>
+          <button onClick={skip} title="この問題をスキップして後回しにする"
+            style={{...S.btn("ghost"),padding:"4px 9px",fontSize:11,color:"#5a6a7a",borderColor:"rgba(196,160,80,0.2)"}}>
+            スキップ
+          </button>
         </div>
         <VignetteGroupPractice
           questions={questions}
@@ -617,7 +650,17 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
   const lastResult=sessionResults[sessionResults.length-1];
   const relatedQs=(q.relatedIds||[]).map(id=>questions.find(x=>x.id===id)).filter(Boolean);
   return(<div>
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button><div style={{flex:1,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}><div style={{width:`${(qIdx/queue.length)*100}%`,height:"100%",background:"#c4a050",borderRadius:2,transition:"width 0.3s"}}/></div><div style={{fontSize:11,color:"#7a8a9a",minWidth:48,textAlign:"right"}}>{qIdx+1} / {queue.length}</div></div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+      <button onClick={handleBack} style={{...S.btn("ghost"),padding:"4px 8px"}}><Ic.back/></button>
+      <div style={{flex:1,height:4,background:"rgba(255,255,255,0.08)",borderRadius:2}}>
+        <div style={{width:`${(qIdx/queue.length)*100}%`,height:"100%",background:"#c4a050",borderRadius:2,transition:"width 0.3s"}}/>
+      </div>
+      <div style={{fontSize:11,color:"#7a8a9a",minWidth:40,textAlign:"right"}}>{qIdx+1} / {queue.length}</div>
+      {!confirmed&&<button onClick={skip} title="この問題をスキップして後回しにする"
+        style={{...S.btn("ghost"),padding:"4px 9px",fontSize:11,color:"#5a6a7a",borderColor:"rgba(196,160,80,0.2)"}}>
+        スキップ
+      </button>}
+    </div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}><span style={S.tag()}>{q.topic}</span><span style={S.tag(diffColor(q.difficulty))}>{q.difficulty}</span><SRBadge q={q}/></div>
     {q.vignetteText&&<VignettePanel text={q.vignetteText} images={q.vignetteImages||[]}/>}
     <div style={{...S.card,borderColor:"rgba(196,160,80,0.35)",marginBottom:10}}><div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:8}}>QUESTION</div><QuestionContent text={q.questionEN}/><ImageDisplay images={q.questionImages||[]}/>{q.questionJA&&<div style={{marginTop:10}}><button onClick={()=>setShowJA(v=>!v)} style={{...S.btn("ghost"),padding:"4px 10px",fontSize:11,display:"flex",alignItems:"center",gap:5}}>{showJA?<Ic.eyeOff/>:<Ic.eye/>} 日本語訳</button>{showJA&&<div style={{marginTop:8,padding:"10px 12px",background:"rgba(100,130,160,0.08)",borderRadius:4,border:"1px solid rgba(100,130,160,0.2)",fontSize:13,color:"#98afc0",lineHeight:1.7}}>{q.questionJA}</div>}</div>}</div>
