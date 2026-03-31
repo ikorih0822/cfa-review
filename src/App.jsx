@@ -447,34 +447,49 @@ function KeyPointsCard({q, qi, updateQ}) {
 }
 
 function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpenSettings}) {
-  const qs = questions.filter(q => q.vignetteText === vignetteText && q.choices.filter(c=>c.trim()).length >= 2);
-  const vigImages = (qs[0]?.vignetteImages)||[];
-  const [answers, setAnswers] = useState(() => Array(qs.length).fill(null));   // null | {selected, confirmed}
-  const [results, setResults] = useState(() => Array(qs.length).fill(null));
+  const allQs = questions.filter(q => q.vignetteText === vignetteText && q.choices.filter(c=>c.trim()).length >= 2);
+  const vigImages = (allQs[0]?.vignetteImages)||[];
+
+  // Separate due vs not-due sub-questions
+  const dueQs    = allQs.filter(q => isDueToday(q));
+  const notDueQs = allQs.filter(q => !isDueToday(q));
+
+  const [answers, setAnswers] = useState(() => Array(allQs.length).fill(null));
+  const [results,  setResults]  = useState(() => Array(allQs.length).fill(null));
+  // Track which not-due questions are expanded for reference
+  const [shownRef, setShownRef] = useState(() => new Set());
   const labels = ["A","B","C","D","E"];
-  const allConfirmed = answers.every(a => a?.confirmed);
+
+  // "Done" when all DUE questions are confirmed
+  const dueIndices = allQs.map((q,i) => isDueToday(q) ? i : -1).filter(i => i >= 0);
+  const allDueConfirmed = dueIndices.length === 0 || dueIndices.every(i => answers[i]?.confirmed);
 
   function selectChoice(qi, dIdx) {
     if(answers[qi]?.confirmed) return;
     setAnswers(prev => prev.map((a,i) => i===qi ? {selected:dIdx, confirmed:false} : a));
   }
 
-  function confirmAnswer(qi) {
-    const q = qs[qi];
+  function confirmAnswer(qi, countForSM2) {
+    const q = allQs[qi];
     const order = q._choiceOrder || q.choices.map((_,i)=>i);
     const correctDIdx = order.indexOf(q.correctIndex);
     const correct = answers[qi]?.selected === correctDIdx;
-    const sr = sm2Update(q, correct);
-    const updated = {...q, attemptCount:q.attemptCount+1, wrongCount:q.wrongCount+(correct?0:1),
-      lastAttempted:new Date().toISOString(), ...sr};
-    updateQ(updated);
+    if(countForSM2) {
+      const sr = sm2Update(q, correct);
+      const updated = {...q, attemptCount:q.attemptCount+1, wrongCount:q.wrongCount+(correct?0:1),
+        lastAttempted:new Date().toISOString(), ...sr};
+      updateQ(updated);
+      setResults(prev => prev.map((r,i) => i===qi ? {correct, srInterval:sr.srInterval} : r));
+    } else {
+      // Reference-only: just show result, no SM-2
+      setResults(prev => prev.map((r,i) => i===qi ? {correct, srInterval:null, refOnly:true} : r));
+    }
     setAnswers(prev => prev.map((a,i) => i===qi ? {...a, confirmed:true} : a));
-    setResults(prev => prev.map((r,i) => i===qi ? {correct, srInterval:sr.srInterval} : r));
   }
 
   const choiceState = (qi, dIdx) => {
     const a = answers[qi];
-    const q = qs[qi];
+    const q = allQs[qi];
     const order = q._choiceOrder || q.choices.map((_,i)=>i);
     const correctDIdx = order.indexOf(q.correctIndex);
     if(!a?.confirmed) return a?.selected===dIdx ? "selected" : "default";
@@ -484,77 +499,111 @@ function VignetteGroupPractice({questions, vignetteText, onDone, updateQ, onOpen
     return "default";
   };
 
+  function renderSubQ(q, qi, isDue) {
+    const a = answers[qi];
+    const r = results[qi];
+    const order = q._choiceOrder || q.choices.map((_,i)=>i);
+    const displayChoices = order.map(i => ({text:q.choices[i], origIdx:i}));
+    return (
+      <div key={q.id} style={{...S.card,
+        borderColor: isDue ? "rgba(196,160,80,0.3)" : "rgba(100,140,180,0.2)",
+        marginBottom:16,
+        opacity: isDue ? 1 : 0.85}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:10,color: isDue ? "#b0a0e0" : "#4a6a8a",letterSpacing:"0.15em"}}>
+            小問 {qi+1}
+            {!isDue && <span style={{marginLeft:6,background:"rgba(100,140,180,0.2)",borderRadius:3,padding:"1px 6px",fontSize:9,color:"#4a8aaa"}}>参照のみ（SM-2対象外）</span>}
+          </div>
+        </div>
+        <QuestionContent text={q.questionEN}/>
+        <ImageDisplay images={q.questionImages||[]}/>
+
+        {/* Choices */}
+        <div style={{marginTop:10,marginBottom:8}}>
+          {displayChoices.map((ch,dIdx)=>(
+            <button key={dIdx} style={S.choiceBtn(choiceState(qi,dIdx))} onClick={()=>selectChoice(qi,dIdx)}>
+              <div style={{flex:1,display:"flex",alignItems:"flex-start",gap:8}}>
+                <span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span>
+                <span style={{lineHeight:1.5}}>{ch.text}</span>
+              </div>
+              {choiceState(qi,dIdx)==="correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+              {choiceState(qi,dIdx)==="wrong"&&<span style={{marginLeft:"auto"}}><Ic.xmark/></span>}
+              {choiceState(qi,dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
+            </button>
+          ))}
+        </div>
+
+        {/* Confirm button */}
+        {!a?.confirmed && a?.selected!=null && (
+          <button onClick={()=>confirmAnswer(qi, isDue)}
+            style={{...S.btn("primary"),width:"100%",padding:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            ✅ Confirm Answer
+          </button>
+        )}
+
+        {/* Result */}
+        {a?.confirmed && (<>
+          <div style={{...S.card,
+            borderColor: r?.correct ? "rgba(74,173,139,0.4)" : "rgba(224,90,90,0.3)",
+            background: r?.correct ? "rgba(74,173,139,0.06)" : "rgba(224,90,90,0.06)",
+            padding:"10px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            <span style={{fontSize:20}}>{r?.correct?"✓":"✗"}</span>
+            <div>
+              <div style={{fontSize:13,color:r?.correct?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>
+                {r?.correct?"正解！":"不正解"}
+              </div>
+              {r?.srInterval
+                ? <div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{r.srInterval}日後</strong></div>
+                : <div style={{fontSize:11,color:"#4a6a8a"}}>復習スケジュールには反映されません</div>
+              }
+            </div>
+          </div>
+          <div style={{...S.card,padding:"10px 14px",marginBottom:8}}>
+            <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:6}}>EXPLANATION</div>
+            <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>
+          </div>
+          {isDue && <KeyPointsCard q={q} qi={qi} updateQ={updateQ}/>}
+        </>)}
+      </div>
+    );
+  }
+
   return (
     <div>
-      {/* Passage */}
       <VignettePanel text={vignetteText} images={vigImages}/>
 
       {/* Progress */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:11,color:"#b0a0e0"}}>📖 ビニエット演習 · {qs.length}問</div>
-        <div style={{fontSize:11,color:"#5a6a7a"}}>{answers.filter(a=>a?.confirmed).length} / {qs.length} 解答済</div>
+        <div style={{fontSize:11,color:"#b0a0e0"}}>
+          📖 ビニエット演習
+          <span style={{marginLeft:6,color:"#4aad8b"}}>復習対象 {dueQs.length}問</span>
+          {notDueQs.length>0 && <span style={{marginLeft:6,color:"#4a6a8a"}}>/ 期限未到達 {notDueQs.length}問</span>}
+        </div>
+        <div style={{fontSize:11,color:"#5a6a7a"}}>
+          {dueIndices.filter(i=>answers[i]?.confirmed).length} / {dueQs.length} 解答済
+        </div>
       </div>
 
-      {/* All sub-questions stacked */}
-      {qs.map((q, qi) => {
-        const order = q._choiceOrder || q.choices.map((_,i)=>i);
-        const displayChoices = order.map(i => ({text:q.choices[i], origIdx:i}));
-        const a = answers[qi];
-        const r = results[qi];
-        return (
-          <div key={q.id} style={{...S.card, borderColor:"rgba(196,160,80,0.3)", marginBottom:16}}>
-            {/* Sub-question header */}
-            <div style={{fontSize:10,color:"#b0a0e0",letterSpacing:"0.15em",marginBottom:8}}>
-              小問 {qi+1}
-            </div>
-            <QuestionContent text={q.questionEN}/>
-            <ImageDisplay images={q.questionImages||[]}/>
+      {/* Due sub-questions */}
+      {allQs.map((q, qi) => isDueToday(q) ? renderSubQ(q, qi, true) : null)}
 
-            {/* Choices */}
-            <div style={{marginTop:10,marginBottom:8}}>
-              {displayChoices.map((ch,dIdx)=>(
-                <button key={dIdx} style={S.choiceBtn(choiceState(qi,dIdx))}
-                  onClick={()=>selectChoice(qi,dIdx)}>
-                  <div style={{flex:1,display:"flex",alignItems:"flex-start",gap:8}}>
-                    <span style={{fontWeight:"bold",minWidth:20,opacity:0.7,flexShrink:0}}>{labels[dIdx]}.</span>
-                    <span style={{lineHeight:1.5}}>{ch.text}</span>
-                  </div>
-                  {choiceState(qi,dIdx)==="correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
-                  {choiceState(qi,dIdx)==="wrong"&&<span style={{marginLeft:"auto"}}><Ic.xmark/></span>}
-                  {choiceState(qi,dIdx)==="reveal-correct"&&<span style={{marginLeft:"auto"}}><Ic.check/></span>}
-                </button>
-              ))}
-            </div>
+      {/* Not-due sub-questions — collapsible reference section */}
+      {notDueQs.length > 0 && (
+        <div style={{marginTop:8,marginBottom:16}}>
+          <button
+            onClick={()=>setShownRef(s=>{const n=new Set(s);if(n.size>0){n.clear();}else{notDueQs.forEach(q=>{const i=allQs.indexOf(q);n.add(i);});} return n;})}
+            style={{...S.btn("ghost"),width:"100%",padding:"8px 12px",fontSize:12,
+              borderColor:"rgba(100,140,180,0.3)",color:"#4a8aaa",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            <span>📋</span>
+            {shownRef.size > 0 ? "参照問題を隠す" : `期限未到達の小問を参照する（${notDueQs.length}問）`}
+          </button>
+          {shownRef.size > 0 && allQs.map((q, qi) => !isDueToday(q) ? renderSubQ(q, qi, false) : null)}
+        </div>
+      )}
 
-            {/* Confirm button */}
-            {!a?.confirmed && a?.selected!=null && (
-              <button onClick={()=>confirmAnswer(qi)}
-                style={{...S.btn("primary"),width:"100%",padding:12,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                ✅ Confirm Answer
-              </button>
-            )}
-
-            {/* Result + Explanation */}
-            {a?.confirmed && (<>
-              <div style={{...S.card,borderColor:r?.correct?"rgba(74,173,139,0.4)":"rgba(224,90,90,0.3)",background:r?.correct?"rgba(74,173,139,0.06)":"rgba(224,90,90,0.06)",padding:"10px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                <span style={{fontSize:20}}>{r?.correct?"✓":"✗"}</span>
-                <div>
-                  <div style={{fontSize:13,color:r?.correct?"#4aad8b":"#e05a5a",fontWeight:"bold"}}>{r?.correct?"正解！":"不正解"}</div>
-                  <div style={{fontSize:11,color:"#7a8a9a"}}>次回: <strong style={{color:"#c4a050"}}>{r?.srInterval}日後</strong></div>
-                </div>
-              </div>
-              <div style={{...S.card,padding:"10px 14px",marginBottom:8}}>
-                <div style={{fontSize:10,color:"#c4a050",letterSpacing:"0.15em",marginBottom:6}}>EXPLANATION</div>
-                <div style={{fontSize:13,color:"#c8bfaf",lineHeight:1.7}}>{q.explanationEN}</div>
-              </div>
-              <KeyPointsCard q={q} qi={qi} updateQ={updateQ}/>
-            </>)}
-          </div>
-        );
-      })}
-
-      {/* Done button */}
-      {allConfirmed && (
+      {/* Done button — only when all DUE questions answered */}
+      {allDueConfirmed && (
         <button onClick={onDone}
           style={{...S.btn("primary"),width:"100%",padding:14,fontSize:15,marginTop:8}}>
           演習を終了する →
@@ -637,7 +686,7 @@ function Practice({questions,updateQ,initialMode,singleQId,clearSingleQ,onOpenSe
           vignetteText={q.vignetteText}
           updateQ={updateQ}
           onOpenSettings={onOpenSettings}
-          onDone={()=>{setQueue(null);if(singleQId)clearSingleQ();}}
+          onDone={()=>{ next(); }}
         />
       </div>
     );
