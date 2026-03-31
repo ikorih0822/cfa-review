@@ -1231,7 +1231,12 @@ function gridToTabText(questionText, headers, rows) {
     parts.push(headers.slice(1).join('  '));
   }
   rows.forEach(r => {
-    if (r.type === 'section') {
+    if (r.type === 'note') {
+      // Plain text block: surrounded by blank lines to break out of table
+      parts.push('');  // blank line before
+      if (r.text.trim()) parts.push(r.text);
+      parts.push('');  // blank line after
+    } else if (r.type === 'section') {
       if (r.text.trim()) parts.push(r.text);
     } else {
       parts.push(r.cells.join('\t'));
@@ -1309,6 +1314,13 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
   function addSectionRow(ri) {
     const rows = [...grid.rows];
     rows.splice(ri+1, 0, {type:'section', text:''});
+    updateGrid({...grid, rows});
+  }
+  function addNoteRow() {
+    updateGrid({...grid, rows:[...grid.rows, {type:'note', text:''}]});
+  }
+  function setNoteText(ri, v) {
+    const rows = grid.rows.map((r,i) => i===ri ? {...r, text:v} : r);
     updateGrid({...grid, rows});
   }
   function addCol() {
@@ -1402,13 +1414,27 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
             )}
             <tbody>
               {grid.rows.map((row,ri)=>{
+                if(row.type==='note') return (
+                  <tr key={ri}>
+                    <td colSpan={nCols} style={{padding:'2px 3px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:4}}>
+                        <div style={{fontSize:9,color:'#6b9fd4',minWidth:28,textAlign:'center'}}>文章</div>
+                        <textarea value={row.text} onChange={e=>setNoteText(ri,e.target.value)}
+                          style={{...cellBase,flex:1,minHeight:40,resize:'vertical',lineHeight:1.5,padding:'4px 6px',borderColor:'rgba(100,140,200,0.3)',color:'#8aafcc'}}
+                          placeholder="表の外に挿入する文章..."/>
+                        <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
+                      </div>
+                    </td>
+                    <td/>
+                  </tr>
+                );
                 if(row.type==='section') return (
                   <tr key={ri}>
                     <td colSpan={nCols} style={{padding:'2px 3px'}}>
                       <div style={{display:'flex',alignItems:'center',gap:4}}>
                         <input value={row.text} onChange={e=>setSectionText(ri,e.target.value)}
                           style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',flex:1}}
-                          placeholder="セクション見出し"/>
+                          placeholder="セクション見出し（表内の区切り行）"/>
                         <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
                       </div>
                     </td>
@@ -1436,7 +1462,8 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
         {/* Row/Col controls */}
         <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
           <button onClick={addDataRow} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 行を追加</button>
-          <button onClick={()=>addSectionRow(grid.rows.length-1)} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ セクション見出し</button>
+          <button onClick={()=>addSectionRow(grid.rows.length-1)} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 見出し行（表内）</button>
+          <button onClick={addNoteRow} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11,borderColor:'rgba(100,140,200,0.4)',color:'#6b9fd4'}}>＋ 文章を挿入（表外）</button>
           <button onClick={addCol} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 列を追加</button>
         </div>
       </div>
