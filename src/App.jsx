@@ -1245,6 +1245,60 @@ function gridToTabText(questionText, headers, rows) {
   return parts.join('\n');
 }
 
+
+// ── RowToolbar — per-row action menu inside InlineTableEditor ─────────────────
+function RowToolbar({ri, type, onSwitch, onInsert, onRemove, compact=false}) {
+  const [open, setOpen] = useState(false);
+  const btnStyle = {
+    padding:'2px 5px', borderRadius:3, border:'1px solid rgba(196,160,80,0.25)',
+    background:'transparent', color:'#6a7a8a', cursor:'pointer', fontSize:10, lineHeight:1,
+  };
+  const menuItem = (label, action, color) => (
+    <button onMouseDown={e=>{e.preventDefault();action();setOpen(false);}}
+      style={{display:'block',width:'100%',textAlign:'left',padding:'5px 10px',background:'transparent',
+        border:'none',color:color||'#c8bfaf',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',
+        ':hover':{background:'rgba(196,160,80,0.1)'}}}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div style={{position:'relative',display:'inline-flex',alignItems:'center',gap:3,marginBottom:compact?0:2}}>
+      {/* Toggle menu */}
+      <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
+        style={{...btnStyle,minWidth:22,textAlign:'center',position:'relative'}}>
+        ⋮
+      </button>
+      {open && (
+        <div onMouseLeave={()=>setOpen(false)}
+          style={{position:'absolute',top:'100%',left:0,zIndex:100,
+            background:'#131f30',border:'1px solid rgba(196,160,80,0.3)',
+            borderRadius:5,padding:'4px 0',minWidth:180,boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}}>
+          {/* Type switcher */}
+          <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',marginBottom:2}}>
+            種類を変更
+          </div>
+          {type!=='data'    && menuItem('📊 データ行に変換',    ()=>onSwitch(ri,'data'))}
+          {type!=='section' && menuItem('📌 見出し行（表内）に変換', ()=>onSwitch(ri,'section'), '#c4a050')}
+          {type!=='note'    && menuItem('📝 文章（表外）に変換', ()=>onSwitch(ri,'note'), '#6b9fd4')}
+          {/* Insert after */}
+          <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',borderTop:'1px solid rgba(196,160,80,0.1)',margin:'2px 0'}}>
+            この行の下に挿入
+          </div>
+          {menuItem('＋ データ行',      ()=>onInsert('data'))}
+          {menuItem('＋ 見出し行（表内）', ()=>onInsert('section'), '#c4a050')}
+          {menuItem('＋ 文章（表外）',   ()=>onInsert('note'), '#6b9fd4')}
+          {menuItem('＋ 列を追加',       ()=>onInsert('col'), '#4aad8b')}
+          {/* Remove */}
+          <div style={{borderTop:'1px solid rgba(196,160,80,0.1)',marginTop:2,paddingTop:2}}>
+            {menuItem('✕ この行を削除', ()=>onRemove(), '#e05a5a')}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=100, placeholderText=null, accentColor=null, textColor=null }) {
   const hasTable = value.includes('\t');
   const [mode, setMode] = useState(() => hasTable ? 'visual' : 'text');
@@ -1307,17 +1361,53 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
     const rows = grid.rows.map((r,i) => i===ri ? {...r, text: v} : r);
     updateGrid({...grid, rows});
   }
-  function addDataRow() {
-    const cols = grid.headers.length || grid.maxCols || 3;
-    updateGrid({...grid, rows:[...grid.rows, {type:'data', cells:Array(cols).fill('')}]});
-  }
-  function addSectionRow(ri) {
+  // Insert helpers — ri=-1 means append at end
+  function insertRow(ri, newRow) {
     const rows = [...grid.rows];
-    rows.splice(ri+1, 0, {type:'section', text:''});
+    if (ri < 0 || ri >= rows.length) rows.push(newRow);
+    else rows.splice(ri+1, 0, newRow);
     updateGrid({...grid, rows});
   }
-  function addNoteRow() {
-    updateGrid({...grid, rows:[...grid.rows, {type:'note', text:''}]});
+  function addDataRow(ri=-1) {
+    const cols = grid.headers.length || grid.maxCols || 3;
+    insertRow(ri, {type:'data', cells:Array(cols).fill('')});
+  }
+  function addSectionRow(ri=-1) {
+    insertRow(ri, {type:'section', text:''});
+  }
+  function addNoteRow(ri=-1) {
+    insertRow(ri, {type:'note', text:''});
+  }
+  function addColAfter(ci=-1) {
+    const headers = [...grid.headers];
+    if (ci < 0 || ci >= headers.length) headers.push('');
+    else headers.splice(ci+1, 0, '');
+    const rows = grid.rows.map(r => {
+      if (r.type !== 'data') return r;
+      const cells = [...r.cells];
+      if (ci < 0 || ci >= cells.length) cells.push('');
+      else cells.splice(ci+1, 0, '');
+      return {...r, cells};
+    });
+    updateGrid({...grid, headers, rows, maxCols:(grid.maxCols||0)+1});
+  }
+  function switchRowType(ri, newType) {
+    const row = grid.rows[ri];
+    let newRow;
+    if (newType === 'data') {
+      const cols = grid.headers.length || grid.maxCols || 3;
+      newRow = {type:'data', cells:Array(cols).fill('')};
+    } else if (newType === 'section') {
+      newRow = {type:'section', text: row.text||''};
+    } else {
+      newRow = {type:'note', text: row.text||''};
+    }
+    const rows = grid.rows.map((r,i) => i===ri ? newRow : r);
+    updateGrid({...grid, rows});
+  }
+  function setSectionText(ri, v) {
+    const rows = grid.rows.map((r,i) => i===ri ? {...r, text:v} : r);
+    updateGrid({...grid, rows});
   }
   function setNoteText(ri, v) {
     const rows = grid.rows.map((r,i) => i===ri ? {...r, text:v} : r);
@@ -1414,57 +1504,54 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
             )}
             <tbody>
               {grid.rows.map((row,ri)=>{
-                if(row.type==='note') return (
+                {/* note row */}
+                {row.type==='note' && (
                   <tr key={ri}>
-                    <td colSpan={nCols} style={{padding:'2px 3px'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:4}}>
-                        <div style={{fontSize:9,color:'#6b9fd4',minWidth:28,textAlign:'center'}}>文章</div>
-                        <textarea value={row.text} onChange={e=>setNoteText(ri,e.target.value)}
-                          style={{...cellBase,flex:1,minHeight:40,resize:'vertical',lineHeight:1.5,padding:'4px 6px',borderColor:'rgba(100,140,200,0.3)',color:'#8aafcc'}}
-                          placeholder="表の外に挿入する文章..."/>
-                        <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
-                      </div>
+                    <td colSpan={nCols+1} style={{padding:'2px 3px'}}>
+                      <RowToolbar ri={ri} type="note" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)}/>
+                      <textarea value={row.text} onChange={e=>setNoteText(ri,e.target.value)}
+                        style={{...cellBase,width:'100%',minHeight:40,resize:'vertical',lineHeight:1.5,padding:'4px 6px',borderColor:'rgba(100,140,200,0.3)',color:'#8aafcc',marginTop:2}}
+                        placeholder="表の外に挿入する文章..."/>
                     </td>
-                    <td/>
                   </tr>
-                );
-                if(row.type==='section') return (
+                )}
+                {/* section row */}
+                {row.type==='section' && (
                   <tr key={ri}>
-                    <td colSpan={nCols} style={{padding:'2px 3px'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:4}}>
-                        <input value={row.text} onChange={e=>setSectionText(ri,e.target.value)}
-                          style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',flex:1}}
-                          placeholder="セクション見出し（表内の区切り行）"/>
-                        <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
-                      </div>
+                    <td colSpan={nCols+1} style={{padding:'2px 3px'}}>
+                      <RowToolbar ri={ri} type="section" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)}/>
+                      <input value={row.text} onChange={e=>setSectionText(ri,e.target.value)}
+                        style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',width:'100%',marginTop:2}}
+                        placeholder="セクション見出し（表内の区切り行）"/>
                     </td>
-                    <td/>
                   </tr>
-                );
-                return (
+                )}
+                {/* data row */}
+                {row.type==='data' && (
                   <tr key={ri}>
                     {row.cells.map((cell,ci)=>(
-                      <td key={ci} style={{padding:'2px 3px'}}>
+                      <td key={ci} style={{padding:'2px 3px',position:'relative'}}>
                         <input value={cell} onChange={e=>setCell(ri,ci,e.target.value)}
                           style={{...cellBase,color:ci===0?'#c4a050':'#e8e0d0',background:ci===0?'rgba(196,160,80,0.06)':'rgba(255,255,255,0.04)',textAlign:ci===0?'left':'right'}}/>
                       </td>
                     ))}
-                    <td style={{width:22,paddingLeft:3}}>
-                      <button onClick={()=>removeRow(ri)} style={btnSm}>×</button>
+                    <td style={{width:30,paddingLeft:2,verticalAlign:'middle'}}>
+                      <RowToolbar ri={ri} type="data" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)} compact/>
                     </td>
                   </tr>
-                );
+                )}
               })}
             </tbody>
           </table>
         </div>
 
-        {/* Row/Col controls */}
-        <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
-          <button onClick={addDataRow} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 行を追加</button>
-          <button onClick={()=>addSectionRow(grid.rows.length-1)} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 見出し行（表内）</button>
-          <button onClick={addNoteRow} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11,borderColor:'rgba(100,140,200,0.4)',color:'#6b9fd4'}}>＋ 文章を挿入（表外）</button>
-          <button onClick={addCol} style={{...S.btn('ghost'),padding:'4px 10px',fontSize:11}}>＋ 列を追加</button>
+        {/* Bottom controls — append to end */}
+        <div style={{display:'flex',gap:5,marginTop:8,flexWrap:'wrap',borderTop:'1px solid rgba(196,160,80,0.15)',paddingTop:8}}>
+          <span style={{fontSize:10,color:'#5a6a7a',alignSelf:'center'}}>末尾に追加:</span>
+          <button onClick={()=>addDataRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>行</button>
+          <button onClick={()=>addSectionRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>見出し行</button>
+          <button onClick={()=>addNoteRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11,borderColor:'rgba(100,140,200,0.4)',color:'#6b9fd4'}}>文章</button>
+          <button onClick={addCol} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>列</button>
         </div>
       </div>
 
