@@ -1256,39 +1256,55 @@ function RowToolbar({ri, type, onSwitch, onInsert, onRemove, compact=false}) {
   const menuItem = (label, action, color) => (
     <button onMouseDown={e=>{e.preventDefault();action();setOpen(false);}}
       style={{display:'block',width:'100%',textAlign:'left',padding:'5px 10px',background:'transparent',
-        border:'none',color:color||'#c8bfaf',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',
-        ':hover':{background:'rgba(196,160,80,0.1)'}}}>
+        border:'none',color:color||'#c8bfaf',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
       {label}
     </button>
   );
 
+  // Type badge colors
+  const typeMeta = {
+    data:    {label:'データ行',      color:'#c4a050'},
+    section: {label:'見出し（表内）', color:'#c4a050'},
+    note:    {label:'文章（表外）',   color:'#6b9fd4'},
+  };
+
   return (
     <div style={{position:'relative',display:'inline-flex',alignItems:'center',gap:3,marginBottom:compact?0:2}}>
-      {/* Toggle menu */}
-      <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
-        style={{...btnStyle,minWidth:22,textAlign:'center',position:'relative'}}>
-        ⋮
-      </button>
+      {/* Current type badge — click to switch */}
+      {!compact && (
+        <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
+          style={{...btnStyle, border:`1px solid ${typeMeta[type]?.color||'rgba(196,160,80,0.3)'}40`,
+            color:typeMeta[type]?.color||'#c4a050', padding:'2px 7px', fontSize:10}}>
+          {typeMeta[type]?.label||type} ▾
+        </button>
+      )}
+      {/* Compact: just ⋮ */}
+      {compact && (
+        <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
+          style={{...btnStyle,minWidth:22,textAlign:'center'}}>
+          ⋮
+        </button>
+      )}
       {open && (
         <div onMouseLeave={()=>setOpen(false)}
           style={{position:'absolute',top:'100%',left:0,zIndex:100,
             background:'#131f30',border:'1px solid rgba(196,160,80,0.3)',
-            borderRadius:5,padding:'4px 0',minWidth:180,boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}}>
+            borderRadius:5,padding:'4px 0',minWidth:185,boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}}>
           {/* Type switcher */}
           <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',marginBottom:2}}>
             種類を変更
           </div>
-          {type!=='data'    && menuItem('📊 データ行に変換',    ()=>onSwitch(ri,'data'))}
+          {type!=='data'    && menuItem('📊 データ行に変換',        ()=>onSwitch(ri,'data'))}
           {type!=='section' && menuItem('📌 見出し行（表内）に変換', ()=>onSwitch(ri,'section'), '#c4a050')}
-          {type!=='note'    && menuItem('📝 文章（表外）に変換', ()=>onSwitch(ri,'note'), '#6b9fd4')}
+          {type!=='note'    && menuItem('📝 文章（表外）に変換',     ()=>onSwitch(ri,'note'), '#6b9fd4')}
           {/* Insert after */}
           <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',borderTop:'1px solid rgba(196,160,80,0.1)',margin:'2px 0'}}>
             この行の下に挿入
           </div>
-          {menuItem('＋ データ行',      ()=>onInsert('data'))}
-          {menuItem('＋ 見出し行（表内）', ()=>onInsert('section'), '#c4a050')}
-          {menuItem('＋ 文章（表外）',   ()=>onInsert('note'), '#6b9fd4')}
-          {menuItem('＋ 列を追加',       ()=>onInsert('col'), '#4aad8b')}
+          {menuItem('＋ データ行',       ()=>onInsert('data'))}
+          {menuItem('＋ 見出し行（表内）',()=>onInsert('section'), '#c4a050')}
+          {menuItem('＋ 文章（表外）',    ()=>onInsert('note'), '#6b9fd4')}
+          {menuItem('＋ 列を追加',        ()=>onInsert('col'), '#4aad8b')}
           {/* Remove */}
           <div style={{borderTop:'1px solid rgba(196,160,80,0.1)',marginTop:2,paddingTop:2}}>
             {menuItem('✕ この行を削除', ()=>onRemove(), '#e05a5a')}
