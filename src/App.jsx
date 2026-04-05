@@ -870,10 +870,12 @@ function NoteEditor({editNote,setEditNote,addNote,updateNote,questions,setPage})
 // Supports: text → table → text → table → ... (multiple tables or text after table)
 function parseTabTable(text) {
   const lines = text.split(/\r?\n/);
+  const SEC = '\u00A7';
   const isTabLine = l => l.includes('\t');
+  const isSecLine = l => l.startsWith(SEC);
 
-  // Quick check: any tabs at all?
-  if (!lines.some(isTabLine)) return null;
+  // Quick check: any tabs or § markers?
+  if (!lines.some(l => isTabLine(l) || isSecLine(l))) return null;
 
   // Build segments: {type:'text'|'table', content}
   // A table block starts when we hit a tab line (possibly with a header line just before it)
@@ -881,19 +883,19 @@ function parseTabTable(text) {
   let i = 0;
 
   while (i < lines.length) {
-    if (!isTabLine(lines[i])) {
+    if (!isTabLine(lines[i]) && !isSecLine(lines[i])) {
       // Accumulate plain text lines — but peek ahead to see if the NEXT non-empty
       // line starts a table (then this line might be a header)
       let textBuf = [];
-      while (i < lines.length && !isTabLine(lines[i])) {
-        // Check if this non-tab line is immediately followed by a tab line (= column header)
-        const nextTabIdx = lines.slice(i+1).findIndex(isTabLine);
+      while (i < lines.length && !isTabLine(lines[i]) && !isSecLine(lines[i])) {
+        // Check if this non-tab line is immediately followed by a tab/§ line (= column header)
+        const nextTabIdx = lines.slice(i+1).findIndex(l => isTabLine(l) || isSecLine(l));
         const nextTabAbsolute = nextTabIdx === -1 ? -1 : i + 1 + nextTabIdx;
         const linesBeforeNextTab = nextTabAbsolute === -1 ? Infinity :
           lines.slice(i+1, nextTabAbsolute).filter(l=>l.trim()).length;
 
         if (nextTabAbsolute !== -1 && linesBeforeNextTab === 0) {
-          // This line is a header candidate (only whitespace between it and next tab line)
+          // This line is a header candidate (only whitespace between it and next tab/§ line)
           // Check if it looks like column headers (multiple words / spaces / ideographic)
           const l = lines[i];
           if (/[　＀-￯]/.test(l) || /\S+\s{2,}\S/.test(l)) {
@@ -915,48 +917,49 @@ function parseTabTable(text) {
         if (t) segments.push({type:'text', content:t});
       }
     } else {
-      // We're at a tab line — check one line back for header
+      // We're at a tab or § line — check one line back for column header
       let headers = null;
       // Look at last pushed segment to see if its last line is a header candidate
-      if (segments.length && segments[segments.length-1].type==='text') {
+      if (!isSecLine(lines[i]) && segments.length && segments[segments.length-1].type==='text') {
         const seg = segments[segments.length-1];
         const segLines = seg.content.split('\n');
         const lastLine = segLines[segLines.length-1];
         if (/[　＀-￯]/.test(lastLine) || /\S+\s{2,}\S/.test(lastLine)) {
           headers = lastLine.split(/[　]|\s{2,}/).map(h=>h.trim()).filter(h=>h);
-          // Remove that last line from the text segment
           const remaining = segLines.slice(0,-1).join('\n').trim();
           if (remaining) seg.content = remaining;
           else segments.pop();
         }
       }
 
-      // Collect tab block rows (stop when we get several consecutive non-tab lines that don't look like section headers)
+      // Collect tab block rows
       const tableLines = [];
       while (i < lines.length) {
         const l = lines[i];
-        if (isTabLine(l)) {
+        if (isSecLine(l)) {
+          // § line is always a section row — strip the § prefix
+          tableLines.push(l.slice(1));
+          i++;
+        } else if (isTabLine(l)) {
           tableLines.push(l);
           i++;
         } else if (!l.trim()) {
-          // blank line — peek ahead to see if table continues
+          // blank line — peek ahead
           const rest = lines.slice(i+1);
-          const nextTab = rest.findIndex(isTabLine);
+          const nextTab = rest.findIndex(r => isTabLine(r) || isSecLine(r));
           const nonBlanksBeforeTab = nextTab === -1 ? Infinity :
             rest.slice(0, nextTab).filter(r=>r.trim()).length;
           if (nextTab !== -1 && nonBlanksBeforeTab <= 1) {
             tableLines.push(l); i++;
           } else break;
         } else {
-          // Non-empty, non-tab line — section header or post-table text?
-          // If the very next line is also non-tab, it's post-table text → stop table
-          const nextIsTab = i+1 < lines.length && isTabLine(lines[i+1]);
-          if (nextIsTab) {
-            // treat as section header row
-            tableLines.push(l); i++;
-          } else {
-            break; // end of table
-          }
+          // Non-empty, non-tab, non-§ line — section row if next line is tab/§, otherwise end of table
+          const lookAhead = lines.slice(i+1);
+          const firstBlank = lookAhead.findIndex(x => !x.trim());
+          const firstTabOrSec = lookAhead.findIndex(x => isTabLine(x) || isSecLine(x));
+          const tabBeforeBlank = firstTabOrSec !== -1 && (firstBlank === -1 || firstTabOrSec < firstBlank);
+          if (tabBeforeBlank) { tableLines.push(l); i++; }
+          else { break; }
         }
       }
 
@@ -1267,23 +1270,23 @@ function textToSegments(text) {
 
 function segmentsToText(segments) {
   const parts = [];
+  // § (U+00A7) prefix marks section rows — survives round-trip through parseTabTable
+  const SEC = '\u00A7';
   segments.forEach(seg => {
     if (seg.type === 'text') {
       if (seg.content.trim()) parts.push(seg.content);
     } else {
-      // table: emit headers just before the first data row (not at top)
-      // so parseTabTable detects them correctly (0 non-blank lines before first tab)
       const hasHeaders = seg.headers && seg.headers.length > 0;
       let headerEmitted = !hasHeaders;
       seg.rows.forEach(r => {
         if (r.type === 'section') {
-          if (r.text.trim()) parts.push(r.text);
+          // Each line of the section text gets the § prefix
+          (r.text||'').split('\n').forEach(ln => { if(ln.trim()) parts.push(SEC + ln.trim()); });
         } else if (r.type === 'note') {
           parts.push('');
           if (r.text.trim()) parts.push(r.text);
           parts.push('');
         } else {
-          // data row — emit header line just before first data row
           if (!headerEmitted) {
             parts.push(seg.headers.join('  '));
             headerEmitted = true;
@@ -1291,10 +1294,7 @@ function segmentsToText(segments) {
           parts.push(r.cells.join('\t'));
         }
       });
-      // If there were only section/note rows (no data), still emit header
-      if (!headerEmitted) {
-        parts.push(seg.headers.join('  '));
-      }
+      if (!headerEmitted) parts.push(seg.headers.join('  '));
     }
   });
   return parts.join('\n');
