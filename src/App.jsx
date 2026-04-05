@@ -1246,219 +1246,223 @@ function gridToTabText(questionText, headers, rows) {
 }
 
 
-// ── RowToolbar — per-row action menu inside InlineTableEditor ─────────────────
-function RowToolbar({ri, type, onSwitch, onInsert, onRemove, compact=false}) {
-  const [open, setOpen] = useState(false);
-  const btnStyle = {
-    padding:'2px 5px', borderRadius:3, border:'1px solid rgba(196,160,80,0.25)',
-    background:'transparent', color:'#6a7a8a', cursor:'pointer', fontSize:10, lineHeight:1,
-  };
-  const menuItem = (label, action, color) => (
-    <button onMouseDown={e=>{e.preventDefault();action();setOpen(false);}}
-      style={{display:'block',width:'100%',textAlign:'left',padding:'5px 10px',background:'transparent',
-        border:'none',color:color||'#c8bfaf',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>
-      {label}
-    </button>
-  );
+// ── InlineTableEditor — segment-based direct editor ──────────────────────────
+// Converts tab text ↔ list of editable segments matching the preview exactly
 
-  // Type badge colors
-  const typeMeta = {
-    data:    {label:'データ行',      color:'#c4a050'},
-    section: {label:'見出し（表内）', color:'#c4a050'},
-    note:    {label:'文章（表外）',   color:'#6b9fd4'},
-  };
+function textToSegments(text) {
+  // Reuse parseTabTable which returns segments array or null
+  const segs = parseTabTable(text);
+  if (!segs) return [{type:'text', content: text}];
+  return segs.map(s => {
+    if (s.type === 'text') return {type:'text', content: s.content};
+    // table segment: convert rows to editable format
+    return {
+      type: 'table',
+      headers: s.headers || [],
+      rows: s.rows.map(r => ({...r, cells: r.cells ? [...r.cells] : undefined})),
+      maxCols: s.maxCols,
+    };
+  });
+}
 
-  return (
-    <div style={{position:'relative',display:'inline-flex',alignItems:'center',gap:3,marginBottom:compact?0:2}}>
-      {/* Current type badge — click to switch */}
-      {!compact && (
-        <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
-          style={{...btnStyle, border:`1px solid ${typeMeta[type]?.color||'rgba(196,160,80,0.3)'}40`,
-            color:typeMeta[type]?.color||'#c4a050', padding:'2px 7px', fontSize:10}}>
-          {typeMeta[type]?.label||type} ▾
-        </button>
-      )}
-      {/* Compact: just ⋮ */}
-      {compact && (
-        <button onMouseDown={e=>{e.preventDefault();setOpen(v=>!v);}}
-          style={{...btnStyle,minWidth:22,textAlign:'center'}}>
-          ⋮
-        </button>
-      )}
-      {open && (
-        <div onMouseLeave={()=>setOpen(false)}
-          style={{position:'absolute',top:'100%',left:0,zIndex:100,
-            background:'#131f30',border:'1px solid rgba(196,160,80,0.3)',
-            borderRadius:5,padding:'4px 0',minWidth:185,boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}}>
-          {/* Type switcher */}
-          <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',marginBottom:2}}>
-            種類を変更
-          </div>
-          {type!=='data'    && menuItem('📊 データ行に変換',        ()=>onSwitch(ri,'data'))}
-          {type!=='section' && menuItem('📌 見出し行（表内）に変換', ()=>onSwitch(ri,'section'), '#c4a050')}
-          {type!=='note'    && menuItem('📝 文章（表外）に変換',     ()=>onSwitch(ri,'note'), '#6b9fd4')}
-          {/* Insert after */}
-          <div style={{padding:'3px 10px',fontSize:10,color:'#5a6a7a',borderBottom:'1px solid rgba(196,160,80,0.1)',borderTop:'1px solid rgba(196,160,80,0.1)',margin:'2px 0'}}>
-            この行の下に挿入
-          </div>
-          {menuItem('＋ データ行',       ()=>onInsert('data'))}
-          {menuItem('＋ 見出し行（表内）',()=>onInsert('section'), '#c4a050')}
-          {menuItem('＋ 文章（表外）',    ()=>onInsert('note'), '#6b9fd4')}
-          {menuItem('＋ 列を追加',        ()=>onInsert('col'), '#4aad8b')}
-          {/* Remove */}
-          <div style={{borderTop:'1px solid rgba(196,160,80,0.1)',marginTop:2,paddingTop:2}}>
-            {menuItem('✕ この行を削除', ()=>onRemove(), '#e05a5a')}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function segmentsToText(segments) {
+  const parts = [];
+  segments.forEach(seg => {
+    if (seg.type === 'text') {
+      if (seg.content.trim()) parts.push(seg.content);
+    } else {
+      // table
+      if (seg.headers && seg.headers.length > 0) {
+        parts.push(seg.headers.join('  '));
+      }
+      seg.rows.forEach(r => {
+        if (r.type === 'section') { if (r.text.trim()) parts.push(r.text); }
+        else if (r.type === 'note') { parts.push(''); if (r.text.trim()) parts.push(r.text); parts.push(''); }
+        else { parts.push(r.cells.join('\t')); }
+      });
+    }
+  });
+  return parts.join('\n');
 }
 
 function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=100, placeholderText=null, accentColor=null, textColor=null }) {
   const hasTable = value.includes('\t');
   const [mode, setMode] = useState(() => hasTable ? 'visual' : 'text');
+  const [segments, setSegments] = useState(() => hasTable ? textToSegments(value) : null);
 
-  // Grid state derived from text
-  const [grid, setGrid] = useState(() => {
-    if (!hasTable) return null;
-    return tabTextToGrid(value) || null;
-  });
-
-  // Sync mode when value changes externally (e.g. AI import)
+  // Sync when value changes externally (AI import)
   useEffect(() => {
     if (value.includes('\t') && mode === 'text') {
-      const g = tabTextToGrid(value);
-      if (g) { setGrid(g); setMode('visual'); }
+      setSegments(textToSegments(value));
+      setMode('visual');
     }
   }, [value]);
 
+  function updateSegments(newSegs) {
+    setSegments(newSegs);
+    onChange(segmentsToText(newSegs));
+  }
+
   function switchToVisual() {
-    const g = tabTextToGrid(value);
-    if (g) { setGrid(g); setMode('visual'); }
-    else {
-      // No table yet — create blank 3x4
-      setGrid({
-        questionText: value,
-        headers: ['', '列1', '列2', '列3'],
-        rows: [
-          { type:'data', cells:['行1','','',''] },
-          { type:'data', cells:['行2','','',''] },
-          { type:'data', cells:['行3','','',''] },
-        ],
-        maxCols: 4,
-      });
-      setMode('visual');
-    }
-  }
-
-  function switchToText() {
-    if (grid) {
-      onChange(gridToTabText(grid.questionText, grid.headers, grid.rows));
-    }
-    setMode('text');
-  }
-
-  function updateGrid(next) {
-    setGrid(next);
-    onChange(gridToTabText(next.questionText, next.headers, next.rows));
-  }
-
-  function setQText(v) { updateGrid({...grid, questionText: v}); }
-  function setHeader(ci, v) {
-    const h = [...grid.headers]; h[ci] = v;
-    updateGrid({...grid, headers: h});
-  }
-  function setCell(ri, ci, v) {
-    const rows = grid.rows.map((r,i) => i===ri ? {...r, cells: r.cells.map((c,j)=>j===ci?v:c)} : r);
-    updateGrid({...grid, rows});
-  }
-  function setSectionText(ri, v) {
-    const rows = grid.rows.map((r,i) => i===ri ? {...r, text: v} : r);
-    updateGrid({...grid, rows});
-  }
-  // Insert helpers — ri=-1 means append at end
-  function insertRow(ri, newRow) {
-    const rows = [...grid.rows];
-    if (ri < 0 || ri >= rows.length) rows.push(newRow);
-    else rows.splice(ri+1, 0, newRow);
-    updateGrid({...grid, rows});
-  }
-  function addDataRow(ri=-1) {
-    const cols = grid.headers.length || grid.maxCols || 3;
-    insertRow(ri, {type:'data', cells:Array(cols).fill('')});
-  }
-  function addSectionRow(ri=-1) {
-    insertRow(ri, {type:'section', text:''});
-  }
-  function addNoteRow(ri=-1) {
-    insertRow(ri, {type:'note', text:''});
-  }
-  function addColAfter(ci=-1) {
-    const headers = [...grid.headers];
-    if (ci < 0 || ci >= headers.length) headers.push('');
-    else headers.splice(ci+1, 0, '');
-    const rows = grid.rows.map(r => {
-      if (r.type !== 'data') return r;
-      const cells = [...r.cells];
-      if (ci < 0 || ci >= cells.length) cells.push('');
-      else cells.splice(ci+1, 0, '');
-      return {...r, cells};
-    });
-    updateGrid({...grid, headers, rows, maxCols:(grid.maxCols||0)+1});
-  }
-  function switchRowType(ri, newType) {
-    const row = grid.rows[ri];
-    let newRow;
-    if (newType === 'data') {
-      const cols = grid.headers.length || grid.maxCols || 3;
-      newRow = {type:'data', cells:Array(cols).fill('')};
-    } else if (newType === 'section') {
-      newRow = {type:'section', text: row.text||''};
+    if (value.includes('\t')) {
+      setSegments(textToSegments(value));
     } else {
-      newRow = {type:'note', text: row.text||''};
+      // blank table
+      setSegments([
+        {type:'text', content: value},
+        {type:'table', headers:[], rows:[
+          {type:'data', cells:['','','']},
+          {type:'data', cells:['','','']},
+        ], maxCols:3},
+      ]);
     }
-    const rows = grid.rows.map((r,i) => i===ri ? newRow : r);
-    updateGrid({...grid, rows});
+    setMode('visual');
   }
-  function setSectionText(ri, v) {
-    const rows = grid.rows.map((r,i) => i===ri ? {...r, text:v} : r);
-    updateGrid({...grid, rows});
+
+  function switchToText() { setMode('text'); }
+
+  // ── segment-level operations ──────────────────────────────────────────────
+
+  function updateSeg(si, updated) {
+    const next = segments.map((s,i) => i===si ? updated : s);
+    updateSegments(next);
   }
-  function setNoteText(ri, v) {
-    const rows = grid.rows.map((r,i) => i===ri ? {...r, text:v} : r);
-    updateGrid({...grid, rows});
+
+  function setSegText(si, v) {
+    updateSeg(si, {...segments[si], content: v});
   }
-  function addCol() {
-    updateGrid({
-      ...grid,
-      headers: [...grid.headers, ''],
-      rows: grid.rows.map(r => r.type==='data' ? {...r, cells:[...r.cells,'']} : r),
-      maxCols: (grid.maxCols||0)+1,
-    });
+
+  // Convert a text segment to a section row in adjacent table
+  function textToSectionRow(si, direction) {
+    const text = segments[si].content.trim();
+    const tableIdx = direction === 'prev'
+      ? [...segments].slice(0, si).map((s,i)=>({s,i})).filter(x=>x.s.type==='table').slice(-1)[0]?.i
+      : [...segments].slice(si+1).map((s,i)=>({s,i:si+1+i})).find(x=>x.s.type==='table')?.i;
+    if (tableIdx == null) return;
+    const tbl = segments[tableIdx];
+    const newRow = {type:'section', text};
+    const newRows = direction === 'prev'
+      ? [...tbl.rows, newRow]
+      : [newRow, ...tbl.rows];
+    const newSegs = segments
+      .map((s,i) => i===tableIdx ? {...tbl, rows: newRows} : s)
+      .filter((_,i) => i !== si);
+    updateSegments(newSegs);
   }
-  function removeRow(ri) {
-    if (grid.rows.filter(r=>r.type==='data').length <= 1 && grid.rows[ri].type==='data') return;
-    updateGrid({...grid, rows: grid.rows.filter((_,i)=>i!==ri)});
+
+  // Convert a table section row to a standalone text segment
+  function sectionRowToText(si, ri) {
+    const tbl = segments[si];
+    const row = tbl.rows[ri];
+    const newRows = tbl.rows.filter((_,i) => i !== ri);
+    const newTextSeg = {type:'text', content: row.text};
+    const newSegs = [...segments];
+    newSegs[si] = {...tbl, rows: newRows};
+    newSegs.splice(si+1, 0, newTextSeg); // insert after table
+    updateSegments(newSegs);
   }
-  function removeCol(ci) {
-    if ((grid.headers.length||0) <= 2) return;
-    updateGrid({
-      ...grid,
-      headers: grid.headers.filter((_,i)=>i!==ci),
-      rows: grid.rows.map(r => r.type==='data' ? {...r, cells:r.cells.filter((_,i)=>i!==ci)} : r),
-      maxCols: (grid.maxCols||1)-1,
+
+  // Add row to table
+  function addRowToTable(si, rowType) {
+    const tbl = segments[si];
+    const cols = tbl.maxCols || 3;
+    let newRow;
+    if (rowType==='data') newRow = {type:'data', cells:Array(cols).fill('')};
+    else if (rowType==='section') newRow = {type:'section', text:''};
+    else newRow = {type:'note', text:''};
+    updateSeg(si, {...tbl, rows:[...tbl.rows, newRow]});
+  }
+
+  function updateTableRow(si, ri, updated) {
+    const tbl = segments[si];
+    const newRows = tbl.rows.map((r,i)=>i===ri ? updated : r);
+    updateSeg(si, {...tbl, rows:newRows});
+  }
+
+  function removeTableRow(si, ri) {
+    const tbl = segments[si];
+    updateSeg(si, {...tbl, rows: tbl.rows.filter((_,i)=>i!==ri)});
+  }
+
+  function switchTableRowType(si, ri, newType) {
+    const row = segments[si].rows[ri];
+    let newRow;
+    if (newType==='section') newRow = {type:'section', text: row.text || (row.cells||[]).join(' ')};
+    else if (newType==='note') newRow = {type:'note', text: row.text || (row.cells||[]).join(' ')};
+    else {
+      const cols = segments[si].maxCols || 3;
+      newRow = {type:'data', cells: row.text ? [row.text,...Array(cols-1).fill('')] : Array(cols).fill('')};
+    }
+    updateTableRow(si, ri, newRow);
+  }
+
+  function setTableCell(si, ri, ci, v) {
+    const row = segments[si].rows[ri];
+    const cells = [...row.cells];
+    cells[ci] = v;
+    updateTableRow(si, ri, {...row, cells});
+  }
+
+  function setTableHeader(si, ci, v) {
+    const tbl = segments[si];
+    const headers = [...tbl.headers];
+    headers[ci] = v;
+    updateSeg(si, {...tbl, headers});
+  }
+
+  function addCol(si) {
+    const tbl = segments[si];
+    updateSeg(si, {
+      ...tbl,
+      headers: tbl.headers.length ? [...tbl.headers, ''] : [],
+      rows: tbl.rows.map(r => r.type==='data' ? {...r, cells:[...r.cells,'']} : r),
+      maxCols: (tbl.maxCols||0)+1,
     });
   }
 
+  function removeCol(si, ci) {
+    const tbl = segments[si];
+    if ((tbl.headers.length||0) <= 2 && tbl.maxCols <= 1) return;
+    updateSeg(si, {
+      ...tbl,
+      headers: tbl.headers.filter((_,i)=>i!==ci),
+      rows: tbl.rows.map(r => r.type==='data' ? {...r, cells:r.cells.filter((_,i)=>i!==ci)} : r),
+      maxCols: (tbl.maxCols||1)-1,
+    });
+  }
+
+  function addTextSegment(afterSi) {
+    const newSegs = [...segments];
+    newSegs.splice(afterSi+1, 0, {type:'text', content:''});
+    updateSegments(newSegs);
+  }
+
+  function addTableSegment(afterSi) {
+    const newSegs = [...segments];
+    newSegs.splice(afterSi+1, 0, {type:'table', headers:[], rows:[
+      {type:'data', cells:['','','']},
+      {type:'data', cells:['','','']},
+    ], maxCols:3});
+    updateSegments(newSegs);
+  }
+
+  function removeSegment(si) {
+    updateSegments(segments.filter((_,i)=>i!==si));
+  }
+
+  // ── styles ─────────────────────────────────────────────────────────────────
   const cellBase = {
     border:'1px solid rgba(196,160,80,0.2)', background:'rgba(255,255,255,0.04)',
     color:'#e8e0d0', fontFamily:'Georgia', fontSize:12, outline:'none',
     boxSizing:'border-box', width:'100%', padding:'4px 6px',
   };
-  const btnSm = { padding:'2px 6px', borderRadius:3, border:'1px solid rgba(196,160,80,0.3)',
-    background:'transparent', color:'#7a8a9a', cursor:'pointer', fontSize:10 };
+  const segBtnRow = {display:'flex',gap:5,flexWrap:'wrap',marginTop:4};
+  const microBtn = (color='#5a6a7a') => ({
+    padding:'2px 7px', borderRadius:3, fontSize:10, border:`1px solid ${color}50`,
+    background:'transparent', color, cursor:'pointer',
+  });
 
+  // ── text mode (no tabs) ─────────────────────────────────────────────────────
   if (mode === 'text') {
     return (
       <div>
@@ -1480,102 +1484,127 @@ function InlineTableEditor({ value, onChange, hideLabelInside=false, minHeight=1
     );
   }
 
-  // Visual mode
-  const nCols = grid.headers.length || (grid.rows.find(r=>r.type==='data')?.cells.length) || 3;
+  // ── visual mode: segment editor ─────────────────────────────────────────────
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-        <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>
-        <button onClick={switchToText} style={{...S.btn('ghost'),padding:'3px 10px',fontSize:11}}>
-          ✏ テキスト編集に戻る
-        </button>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        {!hideLabelInside && <label style={{...S.label,marginBottom:0}}>問題文（英語） *</label>}
+        {hideLabelInside && <span/>}
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <button onClick={()=>addTextSegment(-1)} style={{...microBtn('#6b9fd4'),border:'1px solid rgba(100,160,220,0.4)'}}>＋ 文章</button>
+          <button onClick={()=>addTableSegment(-1)} style={{...microBtn('#4aad8b'),border:'1px solid rgba(74,173,139,0.4)'}}>＋ 表</button>
+          <button onClick={switchToText} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>✏ テキスト編集</button>
+        </div>
       </div>
 
-      {/* Question text above table */}
-      <textarea value={grid.questionText} onChange={e=>setQText(e.target.value)}
-        style={{...S.textarea,minHeight:60,marginBottom:8,fontSize:13}}
-        placeholder="表の上に入れる問題文（任意）"/>
+      {(segments||[]).map((seg, si) => {
+        if (seg.type === 'text') {
+          const hasPrevTable = si > 0 && segments[si-1].type === 'table';
+          const hasNextTable = si < segments.length-1 && segments[si+1].type === 'table';
+          return (
+            <div key={si} style={{marginBottom:8,border:'1px solid rgba(100,160,220,0.25)',borderRadius:5,padding:8,background:'rgba(100,160,220,0.04)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                <span style={{fontSize:10,color:'#6b9fd4',letterSpacing:'0.1em'}}>📝 文章ブロック</span>
+                <div style={{display:'flex',gap:4}}>
+                  {hasPrevTable && <button onClick={()=>textToSectionRow(si,'prev')} style={microBtn('#c4a050')}>↑ 上の表の見出し行に変換</button>}
+                  {hasNextTable && <button onClick={()=>textToSectionRow(si,'next')} style={microBtn('#c4a050')}>↓ 下の表の見出し行に変換</button>}
+                  <button onClick={()=>addTableSegment(si)} style={microBtn('#4aad8b')}>＋ 表を追加</button>
+                  <button onClick={()=>removeSegment(si)} style={microBtn('#e05a5a')}>✕</button>
+                </div>
+              </div>
+              <textarea value={seg.content} onChange={e=>setSegText(si,e.target.value)}
+                style={{...cellBase,width:'100%',minHeight:40,resize:'vertical',lineHeight:1.6}}
+                placeholder="文章を入力..."/>
+            </div>
+          );
+        }
 
-      {/* Table grid */}
-      <div style={{background:'rgba(196,160,80,0.04)',border:'1px solid rgba(196,160,80,0.2)',borderRadius:4,padding:10,marginBottom:8}}>
-        <div style={{overflowX:'auto'}}>
-          <table style={{borderCollapse:'collapse',width:'100%'}}>
-            {/* Header row */}
-            {grid.headers.length > 0 && (
-              <thead>
-                <tr>
-                  {grid.headers.map((h,ci)=>(
-                    <th key={ci} style={{padding:'2px 3px',position:'relative',minWidth:70}}>
-                      <input value={h} onChange={e=>setHeader(ci,e.target.value)}
-                        style={{...cellBase,background:'rgba(196,160,80,0.12)',color:'#c4a050',fontWeight:'bold',textAlign:'center'}}
-                        placeholder={ci===0?'':` 列${ci}`}/>
-                      {ci > 1 && (
-                        <button onClick={()=>removeCol(ci)} style={{position:'absolute',top:-5,right:-4,width:14,height:14,borderRadius:'50%',border:'none',background:'#c0392b',color:'#fff',fontSize:9,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-                      )}
-                    </th>
-                  ))}
-                  <th style={{width:22}}/>
-                </tr>
-              </thead>
-            )}
-            <tbody>
-              {grid.rows.map((row,ri)=>{
-                {/* note row */}
-                {row.type==='note' && (
-                  <tr key={ri}>
-                    <td colSpan={nCols+1} style={{padding:'2px 3px'}}>
-                      <RowToolbar ri={ri} type="note" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)}/>
-                      <textarea value={row.text} onChange={e=>setNoteText(ri,e.target.value)}
-                        style={{...cellBase,width:'100%',minHeight:40,resize:'vertical',lineHeight:1.5,padding:'4px 6px',borderColor:'rgba(100,140,200,0.3)',color:'#8aafcc',marginTop:2}}
-                        placeholder="表の外に挿入する文章..."/>
-                    </td>
-                  </tr>
-                )}
-                {/* section row */}
-                {row.type==='section' && (
-                  <tr key={ri}>
-                    <td colSpan={nCols+1} style={{padding:'2px 3px'}}>
-                      <RowToolbar ri={ri} type="section" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)}/>
-                      <input value={row.text} onChange={e=>setSectionText(ri,e.target.value)}
-                        style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',width:'100%',marginTop:2}}
-                        placeholder="セクション見出し（表内の区切り行）"/>
-                    </td>
-                  </tr>
-                )}
-                {/* data row */}
-                {row.type==='data' && (
-                  <tr key={ri}>
-                    {row.cells.map((cell,ci)=>(
-                      <td key={ci} style={{padding:'2px 3px',position:'relative'}}>
-                        <input value={cell} onChange={e=>setCell(ri,ci,e.target.value)}
-                          style={{...cellBase,color:ci===0?'#c4a050':'#e8e0d0',background:ci===0?'rgba(196,160,80,0.06)':'rgba(255,255,255,0.04)',textAlign:ci===0?'left':'right'}}/>
-                      </td>
+        // table segment
+        const tbl = seg;
+        const nCols = tbl.headers.length > 0 ? tbl.headers.length : (tbl.maxCols||3);
+        return (
+          <div key={si} style={{marginBottom:8,border:'1px solid rgba(196,160,80,0.25)',borderRadius:5,padding:8,background:'rgba(196,160,80,0.03)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <span style={{fontSize:10,color:'#c4a050',letterSpacing:'0.1em'}}>📊 表ブロック</span>
+              <div style={{display:'flex',gap:4}}>
+                <button onClick={()=>addTextSegment(si)} style={microBtn('#6b9fd4')}>＋ 文章を追加</button>
+                <button onClick={()=>addTableSegment(si)} style={microBtn('#4aad8b')}>＋ 表を追加</button>
+                <button onClick={()=>removeSegment(si)} style={microBtn('#e05a5a')}>✕</button>
+              </div>
+            </div>
+            <div style={{overflowX:'auto'}}>
+              <table style={{borderCollapse:'collapse',width:'100%'}}>
+                {tbl.headers.length > 0 && (
+                  <thead><tr>
+                    {tbl.headers.map((h,ci)=>(
+                      <th key={ci} style={{padding:'2px 3px',position:'relative',minWidth:70}}>
+                        <input value={h} onChange={e=>setTableHeader(si,ci,e.target.value)}
+                          style={{...cellBase,background:'rgba(196,160,80,0.12)',color:'#c4a050',fontWeight:'bold',textAlign:'center'}}
+                          placeholder={ci===0?'':` 列${ci}`}/>
+                        {ci>=1 && <button onClick={()=>removeCol(si,ci)} style={{position:'absolute',top:-5,right:-4,width:14,height:14,borderRadius:'50%',border:'none',background:'#c0392b',color:'#fff',fontSize:9,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>}
+                      </th>
                     ))}
-                    <td style={{width:30,paddingLeft:2,verticalAlign:'middle'}}>
-                      <RowToolbar ri={ri} type="data" onSwitch={switchRowType} onInsert={(t)=>t==='col'?addColAfter(-1):t==='data'?addDataRow(ri):t==='section'?addSectionRow(ri):addNoteRow(ri)} onRemove={()=>removeRow(ri)} compact/>
-                    </td>
-                  </tr>
+                    <th style={{width:24}}/>
+                  </tr></thead>
                 )}
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Bottom controls — append to end */}
-        <div style={{display:'flex',gap:5,marginTop:8,flexWrap:'wrap',borderTop:'1px solid rgba(196,160,80,0.15)',paddingTop:8}}>
-          <span style={{fontSize:10,color:'#5a6a7a',alignSelf:'center'}}>末尾に追加:</span>
-          <button onClick={()=>addDataRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>行</button>
-          <button onClick={()=>addSectionRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>見出し行</button>
-          <button onClick={()=>addNoteRow()} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11,borderColor:'rgba(100,140,200,0.4)',color:'#6b9fd4'}}>文章</button>
-          <button onClick={addCol} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:11}}>列</button>
-        </div>
-      </div>
-
-      {/* Live preview */}
-      <div style={{fontSize:10,color:'#5a6a7a',marginBottom:4,letterSpacing:'0.1em'}}>プレビュー</div>
-      <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(196,160,80,0.15)',borderRadius:4,padding:'10px 12px',marginBottom:12}}>
-        <QuestionContent text={value}/>
-      </div>
+                <tbody>
+                  {tbl.rows.map((row,ri)=>{
+                    if (row.type==='section') return (
+                      <tr key={ri}>
+                        <td colSpan={nCols} style={{padding:'2px 3px'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:4}}>
+                            <span style={{fontSize:9,color:'#c4a050',minWidth:32}}>見出し</span>
+                            <input value={row.text} onChange={e=>updateTableRow(si,ri,{...row,text:e.target.value})}
+                              style={{...cellBase,background:'rgba(196,160,80,0.08)',color:'#c4a050',fontWeight:'bold',flex:1}}
+                              placeholder="見出し行（表内）"/>
+                            <button onClick={()=>sectionRowToText(si,ri)} style={microBtn('#6b9fd4')} title="文章ブロックとして切り出す">→文章</button>
+                            <button onClick={()=>switchTableRowType(si,ri,'data')} style={microBtn('#5a6a7a')}>→行</button>
+                            <button onClick={()=>removeTableRow(si,ri)} style={microBtn('#e05a5a')}>×</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                    if (row.type==='note') return (
+                      <tr key={ri}>
+                        <td colSpan={nCols} style={{padding:'2px 3px'}}>
+                          <div style={{display:'flex',alignItems:'flex-start',gap:4}}>
+                            <span style={{fontSize:9,color:'#6b9fd4',minWidth:32,paddingTop:6}}>文章</span>
+                            <textarea value={row.text} onChange={e=>updateTableRow(si,ri,{...row,text:e.target.value})}
+                              style={{...cellBase,flex:1,minHeight:36,resize:'vertical',borderColor:'rgba(100,140,200,0.3)',color:'#8aafcc'}}/>
+                            <button onClick={()=>switchTableRowType(si,ri,'section')} style={microBtn('#c4a050')} title="見出し行に変換">→見出し</button>
+                            <button onClick={()=>removeTableRow(si,ri)} style={microBtn('#e05a5a')}>×</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                    return (
+                      <tr key={ri}>
+                        {row.cells.map((cell,ci)=>(
+                          <td key={ci} style={{padding:'2px 3px'}}>
+                            <input value={cell} onChange={e=>setTableCell(si,ri,ci,e.target.value)}
+                              style={{...cellBase,color:ci===0?'#c4a050':'#e8e0d0',background:ci===0?'rgba(196,160,80,0.06)':'rgba(255,255,255,0.04)',textAlign:ci===0?'left':'right'}}/>
+                          </td>
+                        ))}
+                        <td style={{padding:'2px 3px',whiteSpace:'nowrap',verticalAlign:'middle'}}>
+                          <button onClick={()=>switchTableRowType(si,ri,'section')} style={microBtn('#c4a050')} title="見出し行に変換">見出し</button>
+                          {' '}
+                          <button onClick={()=>removeTableRow(si,ri)} style={microBtn('#e05a5a')}>×</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:'flex',gap:5,marginTop:6,flexWrap:'wrap'}}>
+              <button onClick={()=>addRowToTable(si,'data')} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:10}}>＋ 行</button>
+              <button onClick={()=>addRowToTable(si,'section')} style={{...microBtn('#c4a050'),border:'1px solid rgba(196,160,80,0.3)'}}>＋ 見出し行（表内）</button>
+              <button onClick={()=>addRowToTable(si,'note')} style={{...microBtn('#6b9fd4'),border:'1px solid rgba(100,140,200,0.3)'}}>＋ 文章（表外）</button>
+              <button onClick={()=>addCol(si)} style={{...S.btn('ghost'),padding:'3px 9px',fontSize:10}}>＋ 列</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
