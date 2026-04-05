@@ -1271,15 +1271,30 @@ function segmentsToText(segments) {
     if (seg.type === 'text') {
       if (seg.content.trim()) parts.push(seg.content);
     } else {
-      // table
-      if (seg.headers && seg.headers.length > 0) {
+      // table: emit headers just before the first data row (not at top)
+      // so parseTabTable detects them correctly (0 non-blank lines before first tab)
+      const hasHeaders = seg.headers && seg.headers.length > 0;
+      let headerEmitted = !hasHeaders;
+      seg.rows.forEach(r => {
+        if (r.type === 'section') {
+          if (r.text.trim()) parts.push(r.text);
+        } else if (r.type === 'note') {
+          parts.push('');
+          if (r.text.trim()) parts.push(r.text);
+          parts.push('');
+        } else {
+          // data row — emit header line just before first data row
+          if (!headerEmitted) {
+            parts.push(seg.headers.join('  '));
+            headerEmitted = true;
+          }
+          parts.push(r.cells.join('\t'));
+        }
+      });
+      // If there were only section/note rows (no data), still emit header
+      if (!headerEmitted) {
         parts.push(seg.headers.join('  '));
       }
-      seg.rows.forEach(r => {
-        if (r.type === 'section') { if (r.text.trim()) parts.push(r.text); }
-        else if (r.type === 'note') { parts.push(''); if (r.text.trim()) parts.push(r.text); parts.push(''); }
-        else { parts.push(r.cells.join('\t')); }
-      });
     }
   });
   return parts.join('\n');
